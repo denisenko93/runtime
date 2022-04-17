@@ -167,6 +167,317 @@ namespace System.IO
             _sb.Append(value);
         }
 
+        public override void Write(int value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(uint value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(long value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(ulong value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(decimal value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(double value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(float value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(object? value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+        }
+
+        public override void Write(string format, object? arg0)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(format, arg0);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg0);
+        }
+
+        public override void Write(string format, object? arg0, object? arg1)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(format, arg0, arg1);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg0, arg1);
+        }
+
+        public override void Write(string format, object? arg0, object? arg1, object? arg2)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(format, arg0, arg1, arg2);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg0, arg1, arg2);
+        }
+
+        public override void Write(string format, params object?[] arg)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.Write(format, arg);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg);
+        }
+
+        public override void WriteLine(object? value)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.WriteLine(value);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.Append(value);
+            WriteLine();
+        }
+
+        public override void WriteLine(string format, object? arg0)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.WriteLine(format, arg0);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg0);
+            WriteLine();
+        }
+
+        public override void WriteLine(string format, object? arg0, object? arg1)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.WriteLine(format, arg0, arg1);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg0, arg1);
+            WriteLine();
+        }
+
+        public override void WriteLine(string format, object? arg0, object? arg1, object? arg2)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.WriteLine(format, arg0, arg1, arg2);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg0, arg1, arg2);
+            WriteLine();
+        }
+
+        public override void WriteLine(string format, params object?[] arg)
+        {
+            if (GetType() != typeof(StringWriter))
+            {
+                // This overload was added after the Write(char[], ...) overload, and so in case
+                // a derived type may have overridden it, we need to delegate to it, which the base does.
+                base.WriteLine(format, arg);
+                return;
+            }
+
+            if (!_isOpen)
+            {
+                throw new ObjectDisposedException(null, SR.ObjectDisposed_WriterClosed);
+            }
+
+            _sb.AppendFormat(format, arg);
+            WriteLine();
+        }
+
         public override void WriteLine(ReadOnlySpan<char> buffer)
         {
             if (GetType() != typeof(StringWriter))
