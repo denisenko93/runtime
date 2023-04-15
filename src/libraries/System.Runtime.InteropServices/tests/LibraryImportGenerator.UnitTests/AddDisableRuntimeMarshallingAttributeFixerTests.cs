@@ -32,27 +32,32 @@ namespace LibraryImportGenerator.UnitTests
         public static async Task Adds_NewFile_With_Attribute()
         {
             // Source will have CS8795 (Partial method must have an implementation) without generator run
-            var source = @"
-using System.Runtime.InteropServices;
-partial class Foo
-{
-    [LibraryImport(""Foo"")]
-    public static partial void {|CS8795:PInvoke|}(S {|#0:s|});
-}
+            var source = """
+                using System.Runtime.InteropServices;
+                using System.Runtime.InteropServices.Marshalling;
+                partial class Foo
+                {
+                    [LibraryImport("Foo")]
+                    public static partial void {|CS8795:PInvoke|}(S {|#0:s|});
+                }
 
-[NativeMarshalling(typeof(Native))]
-struct S
-{
-}
+                [NativeMarshalling(typeof(Marshaller))]
+                struct S
+                {
+                }
 
-[CustomTypeMarshaller(typeof(S))]
-struct Native
-{
-    public Native(S s) {}
+                struct Native
+                {
+                }
 
-    public S ToManaged() => new S();
-}
-";
+                [CustomMarshaller(typeof(S), MarshalMode.Default, typeof(Marshaller))]
+                static class Marshaller
+                {
+                    public static Native ConvertToUnmanaged(S s) => default;
+
+                    public static S ConvertToManaged(Native n) => default;
+                }
+                """;
             var expectedPropertiesFile = "[assembly: System.Runtime.CompilerServices.DisableRuntimeMarshalling]" + Environment.NewLine;
 
             var diagnostic = VerifyCS.Diagnostic(GeneratorDiagnostics.Ids.TypeNotSupported).WithLocation(0).WithArguments("S", "s");
@@ -62,38 +67,44 @@ struct Native
         [Fact]
         public static async Task Appends_Attribute_To_Existing_AssemblyInfo_File()
         {
-            var source = @"
-using System.Runtime.InteropServices;
-partial class Foo
-{
-    [LibraryImport(""Foo"")]
-    public static partial void {|CS8795:PInvoke|}(S {|#0:s|});
-}
+            var source = """
+                using System.Runtime.InteropServices;
+                using System.Runtime.InteropServices.Marshalling;
+                partial class Foo
+                {
+                    [LibraryImport("Foo")]
+                    public static partial void {|CS8795:PInvoke|}(S {|#0:s|});
+                }
 
-[NativeMarshalling(typeof(Native))]
-struct S
-{
-}
+                [NativeMarshalling(typeof(Marshaller))]
+                struct S
+                {
+                }
 
-[CustomTypeMarshaller(typeof(S))]
-struct Native
-{
-    public Native(S s) {}
+                struct Native
+                {
+                }
 
-    public S ToManaged() => new S();
-}
-";
-            var propertiesFile = @"
-using System.Reflection;
+                [CustomMarshaller(typeof(S), MarshalMode.Default, typeof(Marshaller))]
+                static class Marshaller
+                {
+                    public static Native ConvertToUnmanaged(S s) => default;
 
-[assembly: AssemblyMetadata(""MyMetadata"", ""Value"")]
-";
-            var expectedPropertiesFile = @"
-using System.Reflection;
+                    public static S ConvertToManaged(Native n) => default;
+                }
+                """;
+            var propertiesFile = """
+                using System.Reflection;
 
-[assembly: AssemblyMetadata(""MyMetadata"", ""Value"")]
-[assembly: System.Runtime.CompilerServices.DisableRuntimeMarshalling]
-";
+                [assembly: AssemblyMetadata("MyMetadata", "Value")]
+                """;
+            var expectedPropertiesFile = """
+                using System.Reflection;
+
+                [assembly: AssemblyMetadata("MyMetadata", "Value")]
+                [assembly: System.Runtime.CompilerServices.DisableRuntimeMarshalling]
+
+                """;
 
             var diagnostic = VerifyCS.Diagnostic(GeneratorDiagnostics.Ids.TypeNotSupported).WithLocation(0).WithArguments("S", "s");
             await VerifyCodeFixAsync(source, propertiesFile, expectedPropertiesFile, diagnostic);

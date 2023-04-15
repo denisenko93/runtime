@@ -15,7 +15,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 #endif // !TARGET_UNIX
 
-#define FX_VER_FILEDESCRIPTION_STR "Microsoft .NET Framework IL disassembler\0"
+#define FX_VER_FILEDESCRIPTION_STR ".NET IL Disassembler"
 
 #include <fxver.h>
 #include <fxver.rc>
@@ -79,6 +79,7 @@ BEGIN
     IDS_USAGE_15            L"  /QUOTEALLNAMES      Include all names into single quotes.\n"
     IDS_USAGE_15A           L"  /NOCA               Suppress output of custom attributes.\n"
     IDS_USAGE_15B           L"  /CAVERBAL           Output CA blobs in verbal form (default - in binary form).\n"
+    IDS_USAGE_16            L"  /R2RNATIVEMETADATA  Output the metadata from the R2R Native manifest.\n"
     IDS_USAGE_17            L"The following options are valid for file/console output only:\n"
     IDS_USAGE_18            L"Options for EXE and DLL files:\n"
     IDS_USAGE_19            L"  /UTF8               Use UTF-8 encoding for output (default - ANSI).\n"
@@ -126,7 +127,6 @@ END
 
 STRINGTABLE DISCARDABLE
 BEGIN
-    IDS_USAGE_40            L"  /ALL        Combination of /HEADER, /BYTES, /TOKENS\n\n"
     IDS_USAGE_41            L"\nOption key is '-' or '/', options are recognized by first 3 characters\n\n"
     IDS_USAGE_42            L"Example:  ildasm /tok /byt myfile.exe /out=myfile.il\n\n"
     IDS_USAGE_43            L"\n\nPress any key to close the console window..."
@@ -202,8 +202,6 @@ END
 
 STRINGTABLE DISCARDABLE
 BEGIN
-    IDS_E_MULTIPLEINPUT     L"MULTIPLE INPUT FILES SPECIFIED\n\n"
-    IDS_E_INVALIDOPTION     L"INVALID COMMAND LINE OPTION: %s\n\n"
     IDS_W_CREATEDW32RES     L"WARNING: Created Win32 resource file %s"
     IDS_E_CORRUPTW32RES     L"ERROR: Corrupt Win32 resources"
     IDS_E_CANTOPENW32RES    L"ERROR: Unable to open file %s"

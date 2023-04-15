@@ -11,6 +11,14 @@
 #ifndef __MONO_MONO_CONTEXT_H__
 #define __MONO_MONO_CONTEXT_H__
 
+/* 
+ * Handle non-gnu libc versions with nothing in features.h 
+ * We have no idea what they're compatible with, so always fail.
+ */
+#ifndef __GLIBC_PREREQ
+# define __GLIBC_PREREQ(x,y) 0
+#endif
+
 #include "mono-compiler.h"
 #include "mono-sigcontext.h"
 #include "mono-machine.h"
@@ -585,7 +593,7 @@ typedef struct {
 
 #define MONO_ARCH_HAS_MONO_CONTEXT 1
 
-#elif defined(__mono_ppc__) /* defined(__arm__) */
+#elif (defined (HOST_POWERPC) && !defined (MONO_CROSS_COMPILE)) || defined (TARGET_POWERPC) /* defined(__arm__) */
 
 /* we define our own structure and we'll copy the data
  * from sigcontext/ucontext/mach when we need it.
@@ -593,7 +601,7 @@ typedef struct {
  * We might also want to add an additional field to propagate
  * the original context from the signal handler.
  */
-#ifdef __mono_ppc64__
+#if (defined (HOST_POWERPC64) && !defined (MONO_CROSS_COMPILE)) || defined (TARGET_POWERPC64)
 
 typedef struct {
 	gulong sc_ir;          // pc
@@ -683,7 +691,7 @@ typedef struct {
 		: "memory"			\
 	)
 
-#else /* !defined(__mono_ppc64__) */
+#else /* !defined(HOST_POWERPC64) */
 
 typedef struct {
 	host_mgreg_t sc_ir;          // pc

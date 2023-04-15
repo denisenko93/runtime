@@ -53,6 +53,9 @@ namespace System
 
         public virtual bool IsByRefLike { [Intrinsic] get => throw new NotSupportedException(SR.NotSupported_SubclassOverride); }
 
+        public virtual bool IsFunctionPointer => false;
+        public virtual bool IsUnmanagedFunctionPointer => false;
+
         public bool HasElementType => HasElementTypeImpl();
         protected abstract bool HasElementTypeImpl();
         public abstract Type? GetElementType();
@@ -60,8 +63,11 @@ namespace System
         public virtual int GetArrayRank() => throw new NotSupportedException(SR.NotSupported_SubclassOverride);
 
         public virtual Type GetGenericTypeDefinition() => throw new NotSupportedException(SR.NotSupported_SubclassOverride);
-        public virtual Type[] GenericTypeArguments => (IsGenericType && !IsGenericTypeDefinition) ? GetGenericArguments() : Type.EmptyTypes;
+        public virtual Type[] GenericTypeArguments => (IsGenericType && !IsGenericTypeDefinition) ? GetGenericArguments() : EmptyTypes;
         public virtual Type[] GetGenericArguments() => throw new NotSupportedException(SR.NotSupported_SubclassOverride);
+
+        public virtual Type[] GetOptionalCustomModifiers() => EmptyTypes;
+        public virtual Type[] GetRequiredCustomModifiers() => EmptyTypes;
 
         public virtual int GenericParameterPosition => throw new InvalidOperationException(SR.Arg_NotGenericParameter);
         public virtual GenericParameterAttributes GenericParameterAttributes => throw new NotSupportedException();
@@ -104,7 +110,7 @@ namespace System
         public bool IsContextful => IsContextfulImpl();
         protected virtual bool IsContextfulImpl() => false;
 
-        public virtual bool IsEnum => IsSubclassOf(typeof(Enum));
+        public virtual bool IsEnum { [Intrinsic] get => IsSubclassOf(typeof(Enum)); }
         public bool IsMarshalByRef => IsMarshalByRefImpl();
         protected virtual bool IsMarshalByRefImpl() => false;
         public bool IsPrimitive => IsPrimitiveImpl();
@@ -126,7 +132,7 @@ namespace System
         public ConstructorInfo? TypeInitializer
         {
             [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)]
-            get => GetConstructorImpl(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null, CallingConventions.Any, Type.EmptyTypes, null);
+            get => GetConstructorImpl(BindingFlags.Static | BindingFlags.Public | BindingFlags.NonPublic, null, CallingConventions.Any, EmptyTypes, null);
         }
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors)]
@@ -157,8 +163,10 @@ namespace System
         public ConstructorInfo? GetConstructor(BindingFlags bindingAttr, Binder? binder, Type[] types, ParameterModifier[]? modifiers) => GetConstructor(bindingAttr, binder, CallingConventions.Any, types, modifiers);
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors)]
-        public ConstructorInfo? GetConstructor(BindingFlags bindingAttr, Binder? binder, CallingConventions callConvention, Type[] types!!, ParameterModifier[]? modifiers)
+        public ConstructorInfo? GetConstructor(BindingFlags bindingAttr, Binder? binder, CallingConventions callConvention, Type[] types, ParameterModifier[]? modifiers)
         {
+            ArgumentNullException.ThrowIfNull(types);
+
             for (int i = 0; i < types.Length; i++)
             {
                 ArgumentNullException.ThrowIfNull(types[i], nameof(types));
@@ -199,6 +207,10 @@ namespace System
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicFields | DynamicallyAccessedMemberTypes.NonPublicFields)]
         public abstract FieldInfo[] GetFields(BindingFlags bindingAttr);
 
+        public virtual Type[] GetFunctionPointerCallingConventions() => throw new NotSupportedException();
+        public virtual Type GetFunctionPointerReturnType() => throw new NotSupportedException();
+        public virtual Type[] GetFunctionPointerParameterTypes() => throw new NotSupportedException();
+
         [DynamicallyAccessedMembers(
             DynamicallyAccessedMemberTypes.PublicFields |
             DynamicallyAccessedMemberTypes.PublicMethods |
@@ -236,8 +248,10 @@ namespace System
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2085:UnrecognizedReflectionPattern",
             Justification = "This is finding the MemberInfo with the same MetadataToken as specified MemberInfo. If the specified MemberInfo " +
                             "exists and wasn't trimmed, then the current Type's MemberInfo couldn't have been trimmed.")]
-        public virtual MemberInfo GetMemberWithSameMetadataDefinitionAs(MemberInfo member!!)
+        public virtual MemberInfo GetMemberWithSameMetadataDefinitionAs(MemberInfo member)
         {
+            ArgumentNullException.ThrowIfNull(member);
+
             const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance;
             foreach (MemberInfo myMemberInfo in GetMembers(all))
             {
@@ -260,8 +274,10 @@ namespace System
         public MethodInfo? GetMethod(string name) => GetMethod(name, Type.DefaultLookup);
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)]
-        public MethodInfo? GetMethod(string name!!, BindingFlags bindingAttr)
+        public MethodInfo? GetMethod(string name, BindingFlags bindingAttr)
         {
+            ArgumentNullException.ThrowIfNull(name);
+
             return GetMethodImpl(name, bindingAttr, null, CallingConventions.Any, null, null);
         }
 
@@ -293,8 +309,11 @@ namespace System
         public MethodInfo? GetMethod(string name, BindingFlags bindingAttr, Binder? binder, Type[] types, ParameterModifier[]? modifiers) => GetMethod(name, bindingAttr, binder, CallingConventions.Any, types, modifiers);
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)]
-        public MethodInfo? GetMethod(string name!!, BindingFlags bindingAttr, Binder? binder, CallingConventions callConvention, Type[] types!!, ParameterModifier[]? modifiers)
+        public MethodInfo? GetMethod(string name, BindingFlags bindingAttr, Binder? binder, CallingConventions callConvention, Type[] types, ParameterModifier[]? modifiers)
         {
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(types);
+
             for (int i = 0; i < types.Length; i++)
             {
                 ArgumentNullException.ThrowIfNull(types[i], nameof(types));
@@ -315,10 +334,10 @@ namespace System
         public MethodInfo? GetMethod(string name, int genericParameterCount, BindingFlags bindingAttr, Binder? binder, Type[] types, ParameterModifier[]? modifiers) => GetMethod(name, genericParameterCount, bindingAttr, binder, CallingConventions.Any, types, modifiers);
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods | DynamicallyAccessedMemberTypes.NonPublicMethods)]
-        public MethodInfo? GetMethod(string name!!, int genericParameterCount, BindingFlags bindingAttr, Binder? binder, CallingConventions callConvention, Type[] types, ParameterModifier[]? modifiers)
+        public MethodInfo? GetMethod(string name, int genericParameterCount, BindingFlags bindingAttr, Binder? binder, CallingConventions callConvention, Type[] types, ParameterModifier[]? modifiers)
         {
-            if (genericParameterCount < 0)
-                throw new ArgumentException(SR.ArgumentOutOfRange_NeedNonNegNum, nameof(genericParameterCount));
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentOutOfRangeException.ThrowIfNegative(genericParameterCount);
             ArgumentNullException.ThrowIfNull(types);
             for (int i = 0; i < types.Length; i++)
             {
@@ -352,16 +371,20 @@ namespace System
         public PropertyInfo? GetProperty(string name) => GetProperty(name, Type.DefaultLookup);
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.NonPublicProperties)]
-        public PropertyInfo? GetProperty(string name!!, BindingFlags bindingAttr)
+        public PropertyInfo? GetProperty(string name, BindingFlags bindingAttr)
         {
+            ArgumentNullException.ThrowIfNull(name);
+
             return GetPropertyImpl(name, bindingAttr, null, null, null, null);
         }
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)]
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2085:UnrecognizedReflectionPattern",
             Justification = "Linker doesn't recognize GetPropertyImpl(BindingFlags.Public) but this is what the body is doing")]
-        public PropertyInfo? GetProperty(string name!!, Type? returnType)
+        public PropertyInfo? GetProperty(string name, Type? returnType)
         {
+            ArgumentNullException.ThrowIfNull(name);
+
             return GetPropertyImpl(name, Type.DefaultLookup, null, returnType, null, null);
         }
 
@@ -375,8 +398,11 @@ namespace System
         public PropertyInfo? GetProperty(string name, Type? returnType, Type[] types, ParameterModifier[]? modifiers) => GetProperty(name, Type.DefaultLookup, null, returnType, types, modifiers);
 
         [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties | DynamicallyAccessedMemberTypes.NonPublicProperties)]
-        public PropertyInfo? GetProperty(string name!!, BindingFlags bindingAttr, Binder? binder, Type? returnType, Type[] types!!, ParameterModifier[]? modifiers)
+        public PropertyInfo? GetProperty(string name, BindingFlags bindingAttr, Binder? binder, Type? returnType, Type[] types, ParameterModifier[]? modifiers)
         {
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(types);
+
             return GetPropertyImpl(name, bindingAttr, binder, returnType, types, modifiers);
         }
 
@@ -399,13 +425,17 @@ namespace System
         public virtual MemberInfo[] GetDefaultMembers() => throw NotImplemented.ByDesign;
 
         public virtual RuntimeTypeHandle TypeHandle => throw new NotSupportedException();
-        public static RuntimeTypeHandle GetTypeHandle(object o!!)
+        public static RuntimeTypeHandle GetTypeHandle(object o)
         {
+            ArgumentNullException.ThrowIfNull(o);
+
             return o.GetType().TypeHandle;
         }
 
-        public static Type[] GetTypeArray(object[] args!!)
+        public static Type[] GetTypeArray(object[] args)
         {
+            ArgumentNullException.ThrowIfNull(args);
+
             Type[] cls = new Type[args.Length];
             for (int i = 0; i < cls.Length; i++)
             {
@@ -416,9 +446,57 @@ namespace System
             return cls;
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TypeCode GetTypeCode(Type? type)
         {
+            if (RuntimeHelpers.IsKnownConstant(type) && type is RuntimeType)
+            {
+                return GetRuntimeTypeCode((RuntimeType)type);
+            }
             return type?.GetTypeCodeImpl() ?? TypeCode.Empty;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static TypeCode GetRuntimeTypeCode(RuntimeType type)
+        {
+            RuntimeType underlyingType = type;
+            if (type.IsActualEnum)
+                underlyingType = (RuntimeType)type.GetEnumUnderlyingType();
+
+            if (underlyingType == typeof(sbyte))
+                return TypeCode.SByte;
+            else if (underlyingType == typeof(byte))
+                return TypeCode.Byte;
+            else if (underlyingType == typeof(short))
+                return TypeCode.Int16;
+            else if (underlyingType == typeof(ushort))
+                return TypeCode.UInt16;
+            else if (underlyingType == typeof(int))
+                return TypeCode.Int32;
+            else if (underlyingType == typeof(uint))
+                return TypeCode.UInt32;
+            else if (underlyingType == typeof(long))
+                return TypeCode.Int64;
+            else if (underlyingType == typeof(ulong))
+                return TypeCode.UInt64;
+            else if (underlyingType == typeof(bool))
+                return TypeCode.Boolean;
+            else if (underlyingType == typeof(char))
+                return TypeCode.Char;
+            else if (underlyingType == typeof(float))
+                return TypeCode.Single;
+            else if (underlyingType == typeof(double))
+                return TypeCode.Double;
+            else if (underlyingType == typeof(decimal))
+                return TypeCode.Decimal;
+            else if (underlyingType == typeof(DateTime))
+                return TypeCode.DateTime;
+            else if (underlyingType == typeof(string))
+                return TypeCode.String;
+            else if (underlyingType == typeof(DBNull))
+                return TypeCode.DBNull;
+            else
+                return TypeCode.Object;
         }
 
         protected virtual TypeCode GetTypeCodeImpl()
@@ -481,6 +559,7 @@ namespace System
 
         [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2085:UnrecognizedReflectionPattern",
             Justification = "The single instance field on enum types is never trimmed")]
+        [Intrinsic]
         public virtual Type GetEnumUnderlyingType()
         {
             if (!IsEnum)
@@ -493,7 +572,7 @@ namespace System
             return fields[0].FieldType;
         }
 
-        [RequiresDynamicCode("It might not be possible to create an array of the enum type at runtime. Use Enum.GetValues<TEnum> instead.")]
+        [RequiresDynamicCode("It might not be possible to create an array of the enum type at runtime. Use the GetEnumValues<TEnum> overload or the GetEnumValuesAsUnderlyingType method instead.")]
         public virtual Array GetEnumValues()
         {
             if (!IsEnum)
@@ -503,6 +582,17 @@ namespace System
             // a non-runtime type. If there is strong need we can consider returning an object or int64 array.
             throw NotImplemented.ByDesign;
         }
+
+        /// <summary>
+        /// Retrieves an array of the values of the underlying type constants of this enumeration type.
+        /// </summary>
+        /// <remarks>
+        /// You can use this method to get enumeration values when it's hard to create an array of the enumeration type.
+        /// For example, you might use this method for the <see cref="T:System.Reflection.MetadataLoadContext" /> enumeration or on a platform where run-time code generation is not available.
+        /// </remarks>
+        /// <returns>An array that contains the values of the underlying type constants in this enumeration type.</returns>
+        /// <exception cref="T:System.ArgumentException">This type is not an enumeration type.</exception>
+        public virtual Array GetEnumValuesAsUnderlyingType() => throw new NotSupportedException(SR.NotSupported_SubclassOverride);
 
         [RequiresDynamicCode("The code for an array of the specified type might not be available.")]
         public virtual Type MakeArrayType() => throw new NotSupportedException();
@@ -520,8 +610,7 @@ namespace System
 
         public static Type MakeGenericMethodParameter(int position)
         {
-            if (position < 0)
-                throw new ArgumentException(SR.ArgumentOutOfRange_NeedNonNegNum, nameof(position));
+            ArgumentOutOfRangeException.ThrowIfNegative(position);
             return new SignatureGenericMethodParameterType(position);
         }
 

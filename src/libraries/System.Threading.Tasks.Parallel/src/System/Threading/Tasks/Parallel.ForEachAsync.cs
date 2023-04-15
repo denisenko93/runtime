@@ -15,8 +15,11 @@ namespace System.Threading.Tasks
         /// <exception cref="System.ArgumentNullException">The exception that is thrown when the <paramref name="source"/> argument or <paramref name="body"/> argument is null.</exception>
         /// <returns>A task that represents the entire for each operation.</returns>
         /// <remarks>The operation will execute at most <see cref="Environment.ProcessorCount"/> operations in parallel.</remarks>
-        public static Task ForEachAsync<TSource>(IEnumerable<TSource> source!!, Func<TSource, CancellationToken, ValueTask> body!!)
+        public static Task ForEachAsync<TSource>(IEnumerable<TSource> source, Func<TSource, CancellationToken, ValueTask> body)
         {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(body);
+
             return ForEachAsync(source, DefaultDegreeOfParallelism, TaskScheduler.Default, default(CancellationToken), body);
         }
 
@@ -28,8 +31,11 @@ namespace System.Threading.Tasks
         /// <exception cref="System.ArgumentNullException">The exception that is thrown when the <paramref name="source"/> argument or <paramref name="body"/> argument is null.</exception>
         /// <returns>A task that represents the entire for each operation.</returns>
         /// <remarks>The operation will execute at most <see cref="Environment.ProcessorCount"/> operations in parallel.</remarks>
-        public static Task ForEachAsync<TSource>(IEnumerable<TSource> source!!, CancellationToken cancellationToken, Func<TSource, CancellationToken, ValueTask> body!!)
+        public static Task ForEachAsync<TSource>(IEnumerable<TSource> source, CancellationToken cancellationToken, Func<TSource, CancellationToken, ValueTask> body)
         {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(body);
+
             return ForEachAsync(source, DefaultDegreeOfParallelism, TaskScheduler.Default, cancellationToken, body);
         }
 
@@ -40,8 +46,12 @@ namespace System.Threading.Tasks
         /// <param name="body">An asynchronous delegate that is invoked once per element in the data source.</param>
         /// <exception cref="System.ArgumentNullException">The exception that is thrown when the <paramref name="source"/> argument or <paramref name="body"/> argument is null.</exception>
         /// <returns>A task that represents the entire for each operation.</returns>
-        public static Task ForEachAsync<TSource>(IEnumerable<TSource> source!!, ParallelOptions parallelOptions!!, Func<TSource, CancellationToken, ValueTask> body!!)
+        public static Task ForEachAsync<TSource>(IEnumerable<TSource> source, ParallelOptions parallelOptions, Func<TSource, CancellationToken, ValueTask> body)
         {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(parallelOptions);
+            ArgumentNullException.ThrowIfNull(body);
+
             return ForEachAsync(source, parallelOptions.EffectiveMaxConcurrencyLevel, parallelOptions.EffectiveTaskScheduler, parallelOptions.CancellationToken, body);
         }
 
@@ -83,16 +93,22 @@ namespace System.Threading.Tasks
                     // Continue to loop while there are more elements to be processed.
                     while (!state.Cancellation.IsCancellationRequested)
                     {
-                        // Get the next element from the enumerator.  This requires asynchronously locking around MoveNextAsync/Current.
+                        // Get the next element from the enumerator.  This requires asynchronously locking around MoveNext/Current.
                         TSource element;
-                        lock (state)
+                        await state.AcquireLock();
+                        try
                         {
-                            if (!state.Enumerator.MoveNext())
+                            if (state.Cancellation.IsCancellationRequested || // check now that the lock has been acquired
+                                !state.Enumerator.MoveNext())
                             {
                                 break;
                             }
 
                             element = state.Enumerator.Current;
+                        }
+                        finally
+                        {
+                            state.ReleaseLock();
                         }
 
                         // If the remaining dop allows it and we've not yet queued the next worker, do so now.  We wait
@@ -159,8 +175,11 @@ namespace System.Threading.Tasks
         /// <exception cref="System.ArgumentNullException">The exception that is thrown when the <paramref name="source"/> argument or <paramref name="body"/> argument is null.</exception>
         /// <returns>A task that represents the entire for each operation.</returns>
         /// <remarks>The operation will execute at most <see cref="Environment.ProcessorCount"/> operations in parallel.</remarks>
-        public static Task ForEachAsync<TSource>(IAsyncEnumerable<TSource> source!!, Func<TSource, CancellationToken, ValueTask> body!!)
+        public static Task ForEachAsync<TSource>(IAsyncEnumerable<TSource> source, Func<TSource, CancellationToken, ValueTask> body)
         {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(body);
+
             return ForEachAsync(source, DefaultDegreeOfParallelism, TaskScheduler.Default, default(CancellationToken), body);
         }
 
@@ -172,8 +191,11 @@ namespace System.Threading.Tasks
         /// <exception cref="System.ArgumentNullException">The exception that is thrown when the <paramref name="source"/> argument or <paramref name="body"/> argument is null.</exception>
         /// <returns>A task that represents the entire for each operation.</returns>
         /// <remarks>The operation will execute at most <see cref="Environment.ProcessorCount"/> operations in parallel.</remarks>
-        public static Task ForEachAsync<TSource>(IAsyncEnumerable<TSource> source!!, CancellationToken cancellationToken, Func<TSource, CancellationToken, ValueTask> body!!)
+        public static Task ForEachAsync<TSource>(IAsyncEnumerable<TSource> source, CancellationToken cancellationToken, Func<TSource, CancellationToken, ValueTask> body)
         {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(body);
+
             return ForEachAsync(source, DefaultDegreeOfParallelism, TaskScheduler.Default, cancellationToken, body);
         }
 
@@ -184,8 +206,12 @@ namespace System.Threading.Tasks
         /// <param name="body">An asynchronous delegate that is invoked once per element in the data source.</param>
         /// <exception cref="System.ArgumentNullException">The exception that is thrown when the <paramref name="source"/> argument or <paramref name="body"/> argument is null.</exception>
         /// <returns>A task that represents the entire for each operation.</returns>
-        public static Task ForEachAsync<TSource>(IAsyncEnumerable<TSource> source!!, ParallelOptions parallelOptions!!, Func<TSource, CancellationToken, ValueTask> body!!)
+        public static Task ForEachAsync<TSource>(IAsyncEnumerable<TSource> source, ParallelOptions parallelOptions, Func<TSource, CancellationToken, ValueTask> body)
         {
+            ArgumentNullException.ThrowIfNull(source);
+            ArgumentNullException.ThrowIfNull(parallelOptions);
+            ArgumentNullException.ThrowIfNull(body);
+
             return ForEachAsync(source, parallelOptions.EffectiveMaxConcurrencyLevel, parallelOptions.EffectiveTaskScheduler, parallelOptions.CancellationToken, body);
         }
 
@@ -229,20 +255,11 @@ namespace System.Threading.Tasks
                     {
                         // Get the next element from the enumerator.  This requires asynchronously locking around MoveNextAsync/Current.
                         TSource element;
+                        await state.AcquireLock();
                         try
                         {
-                            // TODO https://github.com/dotnet/runtime/issues/22144:
-                            // Use a no-throwing await if/when one is available built-in.
-                            await state.Lock.WaitAsync(state.Cancellation.Token);
-                        }
-                        catch (OperationCanceledException)
-                        {
-                            break;
-                        }
-
-                        try
-                        {
-                            if (!await state.Enumerator.MoveNextAsync())
+                            if (state.Cancellation.IsCancellationRequested || // check now that the lock has been acquired
+                                !await state.Enumerator.MoveNextAsync())
                             {
                                 break;
                             }
@@ -251,7 +268,7 @@ namespace System.Threading.Tasks
                         }
                         finally
                         {
-                            state.Lock.Release();
+                            state.ReleaseLock();
                         }
 
                         // If the remaining dop allows it and we've not yet queued the next worker, do so now.  We wait
@@ -334,6 +351,8 @@ namespace System.Threading.Tasks
             private readonly TaskScheduler _scheduler;
             /// <summary>The <see cref="ExecutionContext"/> present at the time of the ForEachAsync invocation.  This is only used if on the default scheduler.</summary>
             private readonly ExecutionContext? _executionContext;
+            /// <summary>Semaphore used to provide exclusive access to the enumerator.</summary>
+            private readonly SemaphoreSlim _lock = new SemaphoreSlim(initialCount: 1, maxCount: 1);
 
             /// <summary>The number of outstanding workers.  When this hits 0, the operation has completed.</summary>
             private int _completionRefCount;
@@ -397,16 +416,45 @@ namespace System.Threading.Tasks
             /// <returns>true if this is the last worker to complete iterating; otherwise, false.</returns>
             public bool SignalWorkerCompletedIterating() => Interlocked.Decrement(ref _completionRefCount) == 0;
 
+            /// <summary>Asynchronously acquires exclusive access to the enumerator.</summary>
+            public Task AcquireLock() =>
+                // We explicitly don't pass this.Cancellation to WaitAsync.  Doing so adds overhead, and it isn't actually
+                // necessary. All of the operations that monitor the lock are part of the same ForEachAsync operation, and the Task
+                // returned from ForEachAsync can't complete until all of the constituent operations have completed, including whoever
+                // holds the lock while this worker is waiting on the lock.  Thus, the lock will need to be released for the overall
+                // operation to complete.  Passing the token would allow the overall operation to potentially complete a bit faster in
+                // the face of cancellation, in exchange for making it a bit slower / more overhead in the common case of cancellation
+                // not being requested.  We want to optimize for the latter.  This also then avoids an exception throw / catch when
+                // cancellation is requested.
+                _lock.WaitAsync(CancellationToken.None);
+
+            /// <summary>Relinquishes exclusive access to the enumerator.</summary>
+            public void ReleaseLock() => _lock.Release();
+
             /// <summary>Stores an exception and triggers cancellation in order to alert all workers to stop as soon as possible.</summary>
             /// <param name="e">The exception.</param>
             public void RecordException(Exception e)
             {
+                // Store the exception.
                 lock (this)
                 {
                     (_exceptions ??= new List<Exception>()).Add(e);
                 }
 
-                Cancellation.Cancel();
+                // Trigger cancellation of all workers.  If cancellation has already been triggered
+                // due to a previous exception occurring, this is a nop.
+                try
+                {
+                    Cancellation.Cancel();
+                }
+                catch (AggregateException ae)
+                {
+                    // If cancellation callbacks erroneously throw exceptions, include those exceptions in the list.
+                    lock (this)
+                    {
+                        _exceptions.AddRange(ae.InnerExceptions);
+                    }
+                }
             }
 
             /// <summary>Completes the ForEachAsync task based on the status of this state object.</summary>
@@ -424,6 +472,7 @@ namespace System.Threading.Tasks
                 else if (_exceptions is null)
                 {
                     // Everything completed successfully.
+                    Debug.Assert(!Cancellation.IsCancellationRequested);
                     taskSet = TrySetResult();
                 }
                 else
@@ -480,7 +529,6 @@ namespace System.Threading.Tasks
         /// <typeparam name="TSource">Specifies the type of data being enumerated.</typeparam>
         private sealed class AsyncForEachAsyncState<TSource> : ForEachAsyncState<TSource>, IAsyncDisposable
         {
-            public readonly SemaphoreSlim Lock = new SemaphoreSlim(1, 1);
             public readonly IAsyncEnumerator<TSource> Enumerator;
 
             public AsyncForEachAsyncState(

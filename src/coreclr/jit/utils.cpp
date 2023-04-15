@@ -79,7 +79,13 @@ const signed char       opcodeSizes[] =
 // clang-format on
 
 const BYTE varTypeClassification[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf, howUsed) tf,
+#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, regTyp, regFld, tf) tf,
+#include "typelist.h"
+#undef DEF_TP
+};
+
+const BYTE varTypeRegister[] = {
+#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, regTyp, regFld, tf) regTyp,
 #include "typelist.h"
 #undef DEF_TP
 };
@@ -105,7 +111,7 @@ extern const BYTE opcodeArgKinds[] = {
 const char* varTypeName(var_types vt)
 {
     static const char* const varTypeNames[] = {
-#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, tf, howUsed) nm,
+#define DEF_TP(tn, nm, jitType, verType, sz, sze, asze, st, al, regTyp, regFld, tf) nm,
 #include "typelist.h"
 #undef DEF_TP
     };
@@ -115,7 +121,6 @@ const char* varTypeName(var_types vt)
     return varTypeNames[vt];
 }
 
-#if defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 /*****************************************************************************
  *
  *  Return the name of the given register.
@@ -145,7 +150,6 @@ const char* getRegName(unsigned reg) // this is for gcencode.cpp and disasm.cpp 
 {
     return getRegName((regNumber)reg);
 }
-#endif // defined(DEBUG) || defined(LATE_DISASM) || DUMP_GC_TABLES
 
 #if defined(DEBUG)
 
@@ -248,15 +252,23 @@ const char* getRegNameFloat(regNumber reg, var_types type)
 #define REGDEF(name, rnum, mask, sname) "y" sname,
 #include "register.h"
     };
+    static const char* regNamesZMM[] = {
+#define REGDEF(name, rnum, mask, sname) "z" sname,
+#include "register.h"
+    };
 #endif // FEATURE_SIMD
     assert((unsigned)reg < ArrLen(regNamesFloat));
 
-#ifdef FEATURE_SIMD
-    if (type == TYP_SIMD32)
+#if defined(FEATURE_SIMD) && defined(TARGET_XARCH)
+    if (type == TYP_SIMD64)
+    {
+        return regNamesZMM[reg];
+    }
+    else if (type == TYP_SIMD32)
     {
         return regNamesYMM[reg];
     }
-#endif // FEATURE_SIMD
+#endif // FEATURE_SIMD && TARGET_XARCH
 
     return regNamesFloat[reg];
 #endif
@@ -330,6 +342,14 @@ void dspRegMask(regMaskTP regMask, size_t minSiz)
 
 #elif defined(TARGET_LOONGARCH64)
                 if (REG_A0 <= regNum && regNum <= REG_T8)
+                {
+                    regHead    = regNum;
+                    inRegRange = true;
+                    sep        = "-";
+                }
+#elif defined(TARGET_RISCV64)
+                if ((REG_A0 <= regNum && REG_A7 >= regNum) || REG_T0 == regNum || REG_T1 == regNum ||
+                    (REG_T2 <= regNum && REG_T6 >= regNum))
                 {
                     regHead    = regNum;
                     inRegRange = true;
@@ -648,7 +668,17 @@ const char* genES2str(BitVecTraits* traits, EXPSET_TP set)
     return temp;
 }
 
-const char* refCntWtd2str(weight_t refCntWtd)
+//------------------------------------------------------------------------
+// refCntWtd2str: Return a string representation of a weighted ref count
+//
+// Arguments:
+//    refCntWtd - weight to format
+//    padForDecimalPlaces - (default: false) If true, pad any integral or non-numeric
+//                          output on the right with three spaces, representing space
+//                          for ".00". This makes "1" line up with "2.34" at the "2" column.
+//                          This is used for formatting the BasicBlock list.
+//
+const char* refCntWtd2str(weight_t refCntWtd, bool padForDecimalPlaces)
 {
     const int    bufSize = 17;
     static char  num1[bufSize];
@@ -657,11 +687,17 @@ const char* refCntWtd2str(weight_t refCntWtd)
 
     char* temp = nump;
 
+    const char* strDecimalPaddingString = "";
+    if (padForDecimalPlaces)
+    {
+        strDecimalPaddingString = "   ";
+    }
+
     nump = (nump == num1) ? num2 : num1;
 
     if (refCntWtd >= BB_MAX_WEIGHT)
     {
-        sprintf_s(temp, bufSize, "MAX   ");
+        sprintf_s(temp, bufSize, "MAX%s", strDecimalPaddingString);
     }
     else
     {
@@ -680,7 +716,7 @@ const char* refCntWtd2str(weight_t refCntWtd)
         {
             if (intPart == scaledWeight)
             {
-                sprintf_s(temp, bufSize, "%lld   ", (long long)intPart);
+                sprintf_s(temp, bufSize, "%lld%s", (long long)intPart, strDecimalPaddingString);
             }
             else
             {
@@ -1297,6 +1333,7 @@ void HelperCallProperties::init()
             case CORINFO_HELP_NEWARR_1_VC:
             case CORINFO_HELP_NEWARR_1_ALIGN8:
             case CORINFO_HELP_NEW_MDARR:
+            case CORINFO_HELP_NEW_MDARR_RARE:
             case CORINFO_HELP_NEWARR_1_DIRECT:
             case CORINFO_HELP_NEWARR_1_OBJ:
             case CORINFO_HELP_READYTORUN_NEWARR_1:
@@ -1370,10 +1407,17 @@ void HelperCallProperties::init()
 
             // helpers returning addresses, these can also throw
             case CORINFO_HELP_UNBOX:
-            case CORINFO_HELP_GETREFANY:
             case CORINFO_HELP_LDELEMA_REF:
 
                 isPure = true;
+                break;
+
+            // GETREFANY is pure up to the value of the struct argument. We
+            // only support that when it is not an implicit byref.
+            case CORINFO_HELP_GETREFANY:
+#ifndef WINDOWS_AMD64_ABI
+                isPure = true;
+#endif
                 break;
 
             // helpers that return internal handle
@@ -1401,7 +1445,10 @@ void HelperCallProperties::init()
             case CORINFO_HELP_GETSTATICFIELDADDR_TLS:
             case CORINFO_HELP_GETGENERICS_GCSTATIC_BASE:
             case CORINFO_HELP_GETGENERICS_NONGCSTATIC_BASE:
-            case CORINFO_HELP_READYTORUN_STATIC_BASE:
+            case CORINFO_HELP_READYTORUN_GCSTATIC_BASE:
+            case CORINFO_HELP_READYTORUN_NONGCSTATIC_BASE:
+            case CORINFO_HELP_READYTORUN_THREADSTATIC_BASE:
+            case CORINFO_HELP_READYTORUN_NONGCTHREADSTATIC_BASE:
             case CORINFO_HELP_READYTORUN_GENERIC_STATIC_BASE:
 
                 // These may invoke static class constructors
@@ -1416,6 +1463,7 @@ void HelperCallProperties::init()
             case CORINFO_HELP_GETSHARED_NONGCSTATIC_BASE_NOCTOR:
             case CORINFO_HELP_GETSHARED_GCTHREADSTATIC_BASE_NOCTOR:
             case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR:
+            case CORINFO_HELP_GETSHARED_NONGCTHREADSTATIC_BASE_NOCTOR_OPTIMIZED:
 
                 // These do not invoke static class constructors
                 //
@@ -1629,7 +1677,7 @@ MethodSet::MethodSet(const WCHAR* filename, HostAllocator alloc) : m_pInfos(null
         }
 
         // Ignore lines starting with leading ";" "#" "//".
-        if ((0 == _strnicmp(buffer, ";", 1)) || (0 == _strnicmp(buffer, "#", 1)) || (0 == _strnicmp(buffer, "//", 2)))
+        if ((0 == strncmp(buffer, ";", 1)) || (0 == strncmp(buffer, "#", 1)) || (0 == strncmp(buffer, "//", 2)))
         {
             continue;
         }
@@ -2233,6 +2281,38 @@ bool FloatingPointUtils::hasPreciseReciprocal(float x)
 }
 
 //------------------------------------------------------------------------
+// isAllBitsSet: Determines whether the specified value is AllBitsSet
+//
+// Arguments:
+//    val - value to check for AllBitsSet
+//
+// Return Value:
+//    True if val is AllBitsSet
+//
+
+bool FloatingPointUtils::isAllBitsSet(float val)
+{
+    UINT32 bits = *reinterpret_cast<UINT32*>(&val);
+    return bits == 0xFFFFFFFFU;
+}
+
+//------------------------------------------------------------------------
+// isAllBitsSet: Determines whether the specified value is AllBitsSet
+//
+// Arguments:
+//    val - value to check for AllBitsSet
+//
+// Return Value:
+//    True if val is AllBitsSet
+//
+
+bool FloatingPointUtils::isAllBitsSet(double val)
+{
+    UINT64 bits = *reinterpret_cast<UINT64*>(&val);
+    return bits == 0xFFFFFFFFFFFFFFFFULL;
+}
+
+//------------------------------------------------------------------------
 // isNegative: Determines whether the specified value is negative
 //
 // Arguments:
@@ -2292,6 +2372,38 @@ bool FloatingPointUtils::isNaN(double val)
 {
     UINT64 bits = *reinterpret_cast<UINT64*>(&val);
     return (bits & 0x7FFFFFFFFFFFFFFFULL) > 0x7FF0000000000000ULL;
+}
+
+//------------------------------------------------------------------------
+// isNegativeZero: Determines whether the specified value is negative zero (-0.0)
+//
+// Arguments:
+//    val - value to check for (-0.0)
+//
+// Return Value:
+//    True if val is (-0.0)
+//
+
+bool FloatingPointUtils::isNegativeZero(double val)
+{
+    UINT64 bits = *reinterpret_cast<UINT64*>(&val);
+    return bits == 0x8000000000000000ULL;
+}
+
+//------------------------------------------------------------------------
+// isPositiveZero: Determines whether the specified value is positive zero (+0.0)
+//
+// Arguments:
+//    val - value to check for (+0.0)
+//
+// Return Value:
+//    True if val is (+0.0)
+//
+
+bool FloatingPointUtils::isPositiveZero(double val)
+{
+    UINT64 bits = *reinterpret_cast<UINT64*>(&val);
+    return bits == 0x0000000000000000ULL;
 }
 
 //------------------------------------------------------------------------
@@ -2384,7 +2496,6 @@ double FloatingPointUtils::minimum(double val1, double val2)
 // Return Value:
 //    Either val1 or val2
 //
-
 float FloatingPointUtils::minimum(float val1, float val2)
 {
     if (val1 != val2 && !isNaN(val1))
@@ -2392,6 +2503,569 @@ float FloatingPointUtils::minimum(float val1, float val2)
         return val1 < val2 ? val1 : val2;
     }
     return isNegative(val1) ? val1 : val2;
+}
+
+//------------------------------------------------------------------------
+// normalize: Normalize a floating point value.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    Normalized value.
+//
+// Remarks:
+//   This is a no-op on all host platforms but x86. On x86 floats are returned on
+//   the x87 stack. Since `fld` will automatically quiet signalling NaNs this
+//   means that it is very easy for a float to nondeterministically change bit
+//   representation if it is a snan, depending on whether a function that
+//   returns the value is inlined or not by the C++ compiler. To get around the
+//   nondeterminism we quiet the NaNs ahead of time as a best-effort fix.
+//
+double FloatingPointUtils::normalize(double value)
+{
+#ifdef HOST_X86
+    if (!isNaN(value))
+    {
+        return value;
+    }
+
+    uint64_t bits;
+    static_assert_no_msg(sizeof(bits) == sizeof(value));
+    memcpy(&bits, &value, sizeof(value));
+    bits |= 1ull << 51;
+    memcpy(&value, &bits, sizeof(bits));
+    return value;
+#else
+    return value;
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::BitScanForward: Search the mask data from least significant bit (LSB) to the most significant bit
+// (MSB) for a set bit (1)
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    0 if the mask is zero; nonzero otherwise.
+//
+uint32_t BitOperations::BitScanForward(uint32_t value)
+{
+    assert(value != 0);
+
+#if defined(_MSC_VER)
+    unsigned long result;
+    ::_BitScanForward(&result, value);
+    return static_cast<uint32_t>(result);
+#else
+    int32_t result = __builtin_ctz(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::BitScanForward: Search the mask data from least significant bit (LSB) to the most significant bit
+// (MSB) for a set bit (1)
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    0 if the mask is zero; nonzero otherwise.
+//
+uint32_t BitOperations::BitScanForward(uint64_t value)
+{
+    assert(value != 0);
+
+#if defined(_MSC_VER)
+#if defined(HOST_64BIT)
+    unsigned long result;
+    ::_BitScanForward64(&result, value);
+    return static_cast<uint32_t>(result);
+#else
+    uint32_t lower = static_cast<uint32_t>(value);
+
+    if (lower == 0)
+    {
+        uint32_t upper = static_cast<uint32_t>(value >> 32);
+        return 32 + BitScanForward(upper);
+    }
+
+    return BitScanForward(lower);
+#endif // HOST_64BIT
+#else
+    int32_t result = __builtin_ctzll(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::BitScanReverse: Search the mask data from most significant bit (MSB) to least significant bit
+// (LSB) for a set bit (1).
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    0 if the mask is zero; nonzero otherwise.
+//
+uint32_t BitOperations::BitScanReverse(uint32_t value)
+{
+    assert(value != 0);
+
+#if defined(_MSC_VER)
+    unsigned long result;
+    ::_BitScanReverse(&result, value);
+    return static_cast<uint32_t>(result);
+#else
+    // LZCNT returns index starting from MSB, whereas BSR gives the index from LSB.
+    // 31 ^ BSR here is equivalent to 31 - BSR since the BSR result is always between 0 and 31.
+    // This saves an instruction, as subtraction from constant requires either MOV/SUB or NEG/ADD.
+
+    int32_t result = __builtin_clz(value);
+    return static_cast<uint32_t>(31 ^ result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::BitScanReverse: Search the mask data from most significant bit (MSB) to least significant bit
+// (LSB) for a set bit (1).
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    0 if the mask is zero; nonzero otherwise.
+//
+uint32_t BitOperations::BitScanReverse(uint64_t value)
+{
+    assert(value != 0);
+
+#if defined(_MSC_VER)
+#if defined(HOST_64BIT)
+    unsigned long result;
+    ::_BitScanReverse64(&result, value);
+    return static_cast<uint32_t>(result);
+#else
+    uint32_t upper = static_cast<uint32_t>(value >> 32);
+
+    if (upper == 0)
+    {
+        uint32_t lower = static_cast<uint32_t>(value);
+        return BitScanReverse(lower);
+    }
+
+    return 32 + BitScanReverse(upper);
+#endif // HOST_64BIT
+#else
+    // LZCNT returns index starting from MSB, whereas BSR gives the index from LSB.
+    // 63 ^ BSR here is equivalent to 63 - BSR since the BSR result is always between 0 and 63.
+    // This saves an instruction, as subtraction from constant requires either MOV/SUB or NEG/ADD.
+
+    int32_t result = __builtin_clzll(value);
+    return static_cast<uint32_t>(63 ^ result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::DoubleToUInt64Bits: Gets the underlying bits for a double-precision floating-point value.
+//
+// Arguments:
+//    value - The number to convert
+//
+// Return Value:
+//    The underlying bits for value.
+//
+uint64_t BitOperations::DoubleToUInt64Bits(double value)
+{
+    uint64_t result;
+    memcpy(&result, &value, sizeof(double));
+    return result;
+}
+
+//------------------------------------------------------------------------
+// BitOperations::LeadingZeroCount: Count the number of leading zero bits in a mask.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The number of leading bits in value
+//
+uint32_t BitOperations::LeadingZeroCount(uint32_t value)
+{
+    if (value == 0)
+    {
+        return 32;
+    }
+
+#if defined(_MSC_VER)
+    // LZCNT returns index starting from MSB, whereas BSR gives the index from LSB.
+    // 31 ^ BSR here is equivalent to 31 - BSR since the BSR result is always between 0 and 31.
+    // This saves an instruction, as subtraction from constant requires either MOV/SUB or NEG/ADD.
+
+    uint32_t result = BitOperations::BitScanReverse(value);
+    return 31 ^ result;
+#else
+    int32_t result = __builtin_clz(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::LeadingZeroCount: Count the number of leading zero bits in a mask.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The number of leading bits in value
+//
+uint32_t BitOperations::LeadingZeroCount(uint64_t value)
+{
+    if (value == 0)
+    {
+        return 64;
+    }
+
+#if defined(_MSC_VER)
+    // LZCNT returns index starting from MSB, whereas BSR gives the index from LSB.
+    // 63 ^ BSR here is equivalent to 63 - BSR since the BSR result is always between 0 and 63.
+    // This saves an instruction, as subtraction from constant requires either MOV/SUB or NEG/ADD.
+
+    uint32_t result = BitOperations::BitScanReverse(value);
+    return 63 ^ result;
+#else
+    int32_t result = __builtin_clzll(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::Log2: Returns the integer (floor) log of the specified value, base 2.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The integer (floor) log of value, base 2
+//
+uint32_t BitOperations::Log2(uint32_t value)
+{
+    // The 0->0 contract is fulfilled by setting the LSB to 1.
+    // Log(1) is 0, and setting the LSB for values > 1 does not change the log2 result.
+    return 31 ^ BitOperations::LeadingZeroCount(value | 1);
+}
+
+//------------------------------------------------------------------------
+// BitOperations::Log2: Returns the integer (floor) log of the specified value, base 2.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The integer (floor) log of value, base 2
+//
+uint32_t BitOperations::Log2(uint64_t value)
+{
+    // The 0->0 contract is fulfilled by setting the LSB to 1.
+    // Log(1) is 0, and setting the LSB for values > 1 does not change the log2 result.
+    return 63 ^ BitOperations::LeadingZeroCount(value | 1);
+}
+
+//------------------------------------------------------------------------
+// BitOperations::PopCount: Returns the population count (number of bits set) of a mask.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The population count (number of bits set) of value
+//
+uint32_t BitOperations::PopCount(uint32_t value)
+{
+#if defined(_MSC_VER)
+    // Inspired by the Stanford Bit Twiddling Hacks by Sean Eron Anderson:
+    // http://graphics.stanford.edu/~seander/bithacks.html
+
+    const uint32_t c1 = 0x55555555u;
+    const uint32_t c2 = 0x33333333u;
+    const uint32_t c3 = 0x0F0F0F0Fu;
+    const uint32_t c4 = 0x01010101u;
+
+    value -= (value >> 1) & c1;
+    value = (value & c2) + ((value >> 2) & c2);
+    value = (((value + (value >> 4)) & c3) * c4) >> 24;
+
+    return value;
+#else
+    int32_t result = __builtin_popcount(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::PopCount: Returns the population count (number of bits set) of a mask.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The population count (number of bits set) of value
+//
+uint32_t BitOperations::PopCount(uint64_t value)
+{
+#if defined(_MSC_VER)
+    // Inspired by the Stanford Bit Twiddling Hacks by Sean Eron Anderson:
+    // http://graphics.stanford.edu/~seander/bithacks.html
+
+    const uint64_t c1 = 0x5555555555555555ull;
+    const uint64_t c2 = 0x3333333333333333ull;
+    const uint64_t c3 = 0x0F0F0F0F0F0F0F0Full;
+    const uint64_t c4 = 0x0101010101010101ull;
+
+    value -= (value >> 1) & c1;
+    value = (value & c2) + ((value >> 2) & c2);
+    value = (((value + (value >> 4)) & c3) * c4) >> 56;
+
+    return static_cast<uint32_t>(value);
+#else
+    int32_t result = __builtin_popcountll(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::ReverseBits: Reverses the bits in an integer value
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The reversed bits of value
+//
+uint32_t BitOperations::ReverseBits(uint32_t value)
+{
+    // Inspired by the Stanford Bit Twiddling Hacks by Sean Eron Anderson:
+    // http://graphics.stanford.edu/~seander/bithacks.html
+
+    uint32_t result = value;
+
+    // swap odd and even bits
+    result = ((result >> 1) & 0x55555555) | ((result & 0x55555555) << 1);
+
+    // swap consecutive pairs
+    result = ((result >> 2) & 0x33333333) | ((result & 0x33333333) << 2);
+
+    // swap nibbles ...
+    result = ((result >> 4) & 0x0F0F0F0F) | ((result & 0x0F0F0F0F) << 4);
+
+    // swap bytes
+    result = ((result >> 8) & 0x00FF00FF) | ((result & 0x00FF00FF) << 8);
+
+    // swap 2-byte pairs
+    result = (result >> 16) | (result << 16);
+
+    return result;
+}
+
+//------------------------------------------------------------------------
+// BitOperations::ReverseBits: Reverses the bits in an integer value
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The reversed bits of value
+//
+uint64_t BitOperations::ReverseBits(uint64_t value)
+{
+    // Inspired by the Stanford Bit Twiddling Hacks by Sean Eron Anderson:
+    // http://graphics.stanford.edu/~seander/bithacks.html
+
+    uint64_t result = value;
+
+    // swap odd and even bits
+    result = ((result >> 1) & 0x5555555555555555ull) | ((result & 0x5555555555555555ull) << 1);
+
+    // swap consecutive pairs
+    result = ((result >> 2) & 0x3333333333333333ull) | ((result & 0x3333333333333333ull) << 2);
+
+    // swap nibbles ...
+    result = ((result >> 4) & 0x0F0F0F0F0F0F0F0Full) | ((result & 0x0F0F0F0F0F0F0F0Full) << 4);
+
+    // swap bytes
+    result = ((result >> 8) & 0x00FF00FF00FF00FFull) | ((result & 0x00FF00FF00FF00FFull) << 8);
+
+    // swap 2-byte pairs
+    result = ((result >> 16) & 0x0000FFFF0000FFFFull) | ((result & 0x0000FFFF0000FFFFull) << 16);
+
+    // swap 4-byte pairs
+    result = (result >> 32) | (result << 32);
+
+    return result;
+}
+
+//------------------------------------------------------------------------
+// BitOperations::RotateLeft: Rotates the specified value left by the specified number of bits.
+//
+// Arguments:
+//    value  - the value to rotate
+//    offset - the number of bits to rotate by
+//
+// Return Value:
+//    The rotated value
+//
+uint32_t BitOperations::RotateLeft(uint32_t value, uint32_t offset)
+{
+    // Mask the offset to ensure deterministic xplat behavior for overshifting
+    return (value << (offset & 0x1F)) | (value >> ((32 - offset) & 0x1F));
+}
+
+//------------------------------------------------------------------------
+// BitOperations::RotateLeft: Rotates the specified value left by the specified number of bits.
+//
+// Arguments:
+//    value  - the value to rotate
+//    offset - the number of bits to rotate by
+//
+// Return Value:
+//    The rotated value
+//
+uint64_t BitOperations::RotateLeft(uint64_t value, uint32_t offset)
+{
+    // Mask the offset to ensure deterministic xplat behavior for overshifting
+    return (value << (offset & 0x3F)) | (value >> ((64 - offset) & 0x3F));
+}
+
+//------------------------------------------------------------------------
+// BitOperations::RotateRight: Rotates the specified value right by the specified number of bits.
+//
+// Arguments:
+//    value  - the value to rotate
+//    offset - the number of bits to rotate by
+//
+// Return Value:
+//    The rotated value
+//
+uint32_t BitOperations::RotateRight(uint32_t value, uint32_t offset)
+{
+    // Mask the offset to ensure deterministic xplat behavior for overshifting
+    return (value >> (offset & 0x1F)) | (value << ((32 - offset) & 0x1F));
+}
+
+//------------------------------------------------------------------------
+// BitOperations::RotateRight: Rotates the specified value right by the specified number of bits.
+//
+// Arguments:
+//    value  - the value to rotate
+//    offset - the number of bits to rotate by
+//
+// Return Value:
+//    The rotated value
+//
+uint64_t BitOperations::RotateRight(uint64_t value, uint32_t offset)
+{
+    // Mask the offset to ensure deterministic xplat behavior for overshifting
+    return (value >> (offset & 0x3F)) | (value << ((64 - offset) & 0x3F));
+}
+
+//------------------------------------------------------------------------
+// BitOperations::SingleToUInt32Bits: Gets the underlying bits for a single-precision floating-point value.
+//
+// Arguments:
+//    value - The number to convert
+//
+// Return Value:
+//    The underlying bits for value.
+//
+uint32_t BitOperations::SingleToUInt32Bits(float value)
+{
+    uint32_t result;
+    memcpy(&result, &value, sizeof(float));
+    return result;
+}
+
+//------------------------------------------------------------------------
+// BitOperations::TrailingZeroCount: Count the number of trailing zero bits in an integer value.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The number of trailing zero bits in value
+//
+uint32_t BitOperations::TrailingZeroCount(uint32_t value)
+{
+    if (value == 0)
+    {
+        return 32;
+    }
+
+#if defined(_MSC_VER)
+    return BitOperations::BitScanForward(value);
+#else
+    int32_t result = __builtin_ctz(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::TrailingZeroCount: Count the number of trailing zero bits in an integer value.
+//
+// Arguments:
+//    value - the value
+//
+// Return Value:
+//    The number of trailing zero bits in value
+//
+uint32_t BitOperations::TrailingZeroCount(uint64_t value)
+{
+    if (value == 0)
+    {
+        return 64;
+    }
+
+#if defined(_MSC_VER)
+    return BitOperations::BitScanForward(value);
+#else
+    int32_t result = __builtin_ctzll(value);
+    return static_cast<uint32_t>(result);
+#endif
+}
+
+//------------------------------------------------------------------------
+// BitOperations::UInt32BitsToSingle: Gets a single-precision floating-point from its underlying bit value.
+//
+// Arguments:
+//    value - The underlying bit value.
+//
+// Return Value:
+//    The single-precision floating-point from value.
+//
+float BitOperations::UInt32BitsToSingle(uint32_t value)
+{
+    float result;
+    memcpy(&result, &value, sizeof(uint32_t));
+    return result;
+}
+
+//------------------------------------------------------------------------
+// BitOperations::UInt64BitsToDouble: Gets a double-precision floating-point from its underlying bit value.
+//
+// Arguments:
+//    value - The underlying bit value.
+//
+// Return Value:
+//    The double-precision floating-point from value.
+//
+double BitOperations::UInt64BitsToDouble(uint64_t value)
+{
+    double result;
+    memcpy(&result, &value, sizeof(uint64_t));
+    return result;
 }
 
 namespace MagicDivide

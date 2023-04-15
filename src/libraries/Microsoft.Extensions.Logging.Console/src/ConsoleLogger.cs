@@ -9,6 +9,9 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace Microsoft.Extensions.Logging.Console
 {
+    /// <summary>
+    /// A logger that writes messages in the console.
+    /// </summary>
     [UnsupportedOSPlatform("browser")]
     internal sealed class ConsoleLogger : ILogger
     {
@@ -16,12 +19,14 @@ namespace Microsoft.Extensions.Logging.Console
         private readonly ConsoleLoggerProcessor _queueProcessor;
 
         internal ConsoleLogger(
-            string name!!,
+            string name,
             ConsoleLoggerProcessor loggerProcessor,
             ConsoleFormatter formatter,
             IExternalScopeProvider? scopeProvider,
             ConsoleLoggerOptions options)
         {
+            ThrowHelper.ThrowIfNull(name);
+
             _name = name;
             _queueProcessor = loggerProcessor;
             Formatter = formatter;
@@ -36,16 +41,16 @@ namespace Microsoft.Extensions.Logging.Console
         [ThreadStatic]
         private static StringWriter? t_stringWriter;
 
+        /// <inheritdoc />
         public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
         {
             if (!IsEnabled(logLevel))
             {
                 return;
             }
-            if (formatter == null)
-            {
-                throw new ArgumentNullException(nameof(formatter));
-            }
+
+            ThrowHelper.ThrowIfNull(formatter);
+
             t_stringWriter ??= new StringWriter();
             LogEntry<TState> logEntry = new LogEntry<TState>(logLevel, _name, eventId, state, exception, formatter);
             Formatter.Write(in logEntry, ScopeProvider, t_stringWriter);
@@ -64,11 +69,13 @@ namespace Microsoft.Extensions.Logging.Console
             _queueProcessor.EnqueueMessage(new LogMessageEntry(computedAnsiString, logAsError: logLevel >= Options.LogToStandardErrorThreshold));
         }
 
+        /// <inheritdoc />
         public bool IsEnabled(LogLevel logLevel)
         {
             return logLevel != LogLevel.None;
         }
 
+        /// <inheritdoc />
         public IDisposable BeginScope<TState>(TState state) where TState : notnull => ScopeProvider?.Push(state) ?? NullScope.Instance;
     }
 }

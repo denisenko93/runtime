@@ -34,7 +34,8 @@ parser.add_argument("-log_file", help="Name of the log file")
 parser.add_argument("-partition_count", help="Total number of partitions")
 parser.add_argument("-partition_index", help="Partition index to do the collection for")
 parser.add_argument("-arch", help="Architecture")
-
+parser.add_argument("--tiered_compilation", action="store_true", help="Sets DOTNET_TieredCompilation=1 when doing collections.")
+parser.add_argument("--tiered_pgo", action="store_true", help="Sets DOTNET_TieredCompilation=1 and DOTNET_TieredPGO=1 when doing collections.")
 
 def setup_args(args):
     """ Setup the args for SuperPMI to use.
@@ -88,6 +89,16 @@ def setup_args(args):
                         "arch",
                         lambda arch: arch.lower() in ["x86", "x64", "arm", "arm64"],
                         "Unable to set arch")
+
+    coreclr_args.verify(args,
+                        "tiered_compilation",
+                        lambda unused: True,
+                        "Unable to set tiered_compilation")
+
+    coreclr_args.verify(args,
+                        "tiered_pgo",
+                        lambda unused: True,
+                        "Unable to set tiered_pgo")
 
     return coreclr_args
 
@@ -178,14 +189,14 @@ def build_and_run(coreclr_args, output_mch_name):
 
     run_command(
         [dotnet_exe, "build", project_file, "--configuration", "Release",
-         "--framework", "net7.0", "--no-restore", "/p:NuGetPackageRoot=" + artifacts_packages_directory,
+         "--framework", "net8.0", "--no-restore", "/p:NuGetPackageRoot=" + artifacts_packages_directory,
          "-o", artifacts_directory], _exit_on_fail=True)
 
     # Disable ReadyToRun so we always JIT R2R methods and collect them
     collection_command = f"{dotnet_exe} {benchmarks_dll}  --filter \"*\" --corerun {os.path.join(core_root, corerun_exe)} --partition-count {partition_count} " \
-                         f"--partition-index {partition_index} --envVars COMPlus_JitName:{shim_name} " \
-                         " COMPlus_ZapDisable:1  COMPlus_ReadyToRun:0 " \
-                         "--iterationCount 1 --warmupCount 0 --invocationCount 1 --unrollFactor 1 --strategy ColdStart"
+                         f"--partition-index {partition_index} --envVars DOTNET_JitName:{shim_name} " \
+                         " DOTNET_ZapDisable:1  DOTNET_ReadyToRun:0 " \
+                         "--iterationCount 1 --warmupCount 0 --invocationCount 1 --unrollFactor 1 --strategy ColdStart --logBuildOutput"
 
     # Generate the execution script in Temp location
     with TempDir() as temp_location:
@@ -194,12 +205,12 @@ def build_and_run(coreclr_args, output_mch_name):
         contents = []
         # Unset the JitName so dotnet process will not fail
         if is_windows:
-            contents.append("set JitName=%COMPlus_JitName%")
-            contents.append("set COMPlus_JitName=")
+            contents.append("set JitName=%DOTNET_JitName%")
+            contents.append("set DOTNET_JitName=")
         else:
             contents.append("#!/bin/bash")
-            contents.append("export JitName=$COMPlus_JitName")
-            contents.append("unset COMPlus_JitName")
+            contents.append("export JitName=$DOTNET_JitName")
+            contents.append("unset DOTNET_JitName")
         contents.append(f"pushd {performance_directory}")
         contents.append(collection_command)
 
@@ -214,10 +225,23 @@ def build_and_run(coreclr_args, output_mch_name):
 
         make_executable(script_name)
 
-        run_command([
-            python_path, os.path.join(superpmi_directory, "superpmi.py"), "collect", "-core_root", core_root,
-            "-output_mch_path", output_mch_name, "-log_file", log_file, "-log_level", "debug",
-            script_name], _exit_on_fail=True)
+        script_args = [python_path,
+                       os.path.join(superpmi_directory, "superpmi.py"),
+                       "collect",
+                       "--clean",
+                       "-core_root", core_root,
+                       "-log_file", log_file,
+                       "-output_mch_path", output_mch_name,
+                       "-log_level", "debug"]
+
+        if coreclr_args.tiered_compilation:
+            script_args.append("--tiered_compilation");
+        elif coreclr_args.tiered_pgo:
+            script_args.append("--tiered_pgo");
+
+        script_args.append(script_name);
+
+        run_command(script_args, _exit_on_fail=True)
 
 
 def strip_unrelated_mc(coreclr_args, old_mch_filename, new_mch_filename):
@@ -279,6 +303,9 @@ def main(main_args):
         main_args ([type]): Arguments to the script
     """
     coreclr_args = setup_args(main_args)
+
+    if coreclr_args.tiered_compilation and coreclr_args.tiered_pgo:
+        raise RuntimeError("Pass only one tiering option.")
 
     all_output_mch_name = os.path.join(coreclr_args.output_mch_path + "_all.mch")
     build_and_run(coreclr_args, all_output_mch_name)

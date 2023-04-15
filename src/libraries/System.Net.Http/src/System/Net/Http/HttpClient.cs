@@ -102,9 +102,10 @@ namespace System.Net.Http
             get => _timeout;
             set
             {
-                if (value != s_infiniteTimeout && (value <= TimeSpan.Zero || value > s_maxTimeout))
+                if (value != s_infiniteTimeout)
                 {
-                    throw new ArgumentOutOfRangeException(nameof(value));
+                    ArgumentOutOfRangeException.ThrowIfLessThanOrEqual(value, TimeSpan.Zero);
+                    ArgumentOutOfRangeException.ThrowIfGreaterThan(value, s_maxTimeout);
                 }
                 CheckDisposedOrStarted();
                 _timeout = value;
@@ -116,10 +117,7 @@ namespace System.Net.Http
             get => _maxResponseContentBufferSize;
             set
             {
-                if (value <= 0)
-                {
-                    throw new ArgumentOutOfRangeException(nameof(value));
-                }
+                ArgumentOutOfRangeException.ThrowIfNegativeOrZero(value);
                 if (value > HttpContent.MaxBufferSize)
                 {
                     throw new ArgumentOutOfRangeException(nameof(value), value,
@@ -558,9 +556,11 @@ namespace System.Net.Http
             }
         }
 
-        private void CheckRequestBeforeSend(HttpRequestMessage request!!)
+        private void CheckRequestBeforeSend(HttpRequestMessage request)
         {
-            CheckDisposed();
+            ArgumentNullException.ThrowIfNull(request);
+
+            ObjectDisposedException.ThrowIf(_disposed, this);
             CheckRequestMessage(request);
 
             SetOperationStarted();
@@ -599,21 +599,28 @@ namespace System.Net.Http
                         // Massage things so that the cancellation exception we propagate appropriately contains the caller's token (it's possible
                         // multiple things caused cancellation, in which case we can attribute it to the caller's token, or it's possible the
                         // exception contains the linked token source, in which case that token isn't meaningful to the caller).
-                        e = toThrow = new TaskCanceledException(oce.Message, oce.InnerException, cancellationToken);
+                        e = toThrow = new TaskCanceledException(oce.Message, oce, cancellationToken);
                     }
                 }
-                else if (!pendingRequestsCts.IsCancellationRequested)
+                else if (cts.IsCancellationRequested && !pendingRequestsCts.IsCancellationRequested)
                 {
-                    // If this exception is for cancellation, but cancellation wasn't requested, either by the caller's token or by the pending requests source,
+                    // If the linked cancellation token source was canceled, but cancellation wasn't requested, either by the caller's token or by the pending requests source,
                     // the only other cause could be a timeout.  Treat it as such.
-                    e = toThrow = new TaskCanceledException(SR.Format(SR.net_http_request_timedout, _timeout.TotalSeconds), new TimeoutException(e.Message, e), oce.CancellationToken);
+
+                    // cancellationToken could have been triggered right after we checked it, but before we checked the cts.
+                    // We must check it again to avoid reporting a timeout when one did not occur.
+                    if (!cancellationToken.IsCancellationRequested)
+                    {
+                        Debug.Assert(_timeout.TotalSeconds > 0);
+                        e = toThrow = new TaskCanceledException(SR.Format(SR.net_http_request_timedout, _timeout.TotalSeconds), new TimeoutException(e.Message, e), oce.CancellationToken);
+                    }
                 }
             }
             else if (e is HttpRequestException && cts.IsCancellationRequested) // if cancellationToken is canceled, cts will also be canceled
             {
                 // If the cancellation token source was canceled, race conditions abound, and we consider the failure to be
                 // caused by the cancellation (e.g. WebException when reading from canceled response stream).
-                e = toThrow = new OperationCanceledException(cancellationToken.IsCancellationRequested ? cancellationToken : cts.Token);
+                e = toThrow = CancellationHelper.CreateOperationCanceledException(e, cancellationToken.IsCancellationRequested ? cancellationToken : cts.Token);
             }
 
             if (NetEventSource.Log.IsEnabled()) NetEventSource.Error(this, e);
@@ -675,7 +682,7 @@ namespace System.Net.Http
 
         public void CancelPendingRequests()
         {
-            CheckDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
 
             // With every request we link this cancellation token source.
             CancellationTokenSource currentCts = Interlocked.Exchange(ref _pendingRequestsCts, new CancellationTokenSource());
@@ -723,18 +730,10 @@ namespace System.Net.Http
 
         private void CheckDisposedOrStarted()
         {
-            CheckDisposed();
+            ObjectDisposedException.ThrowIf(_disposed, this);
             if (_operationStarted)
             {
                 throw new InvalidOperationException(SR.net_http_operation_started);
-            }
-        }
-
-        private void CheckDisposed()
-        {
-            if (_disposed)
-            {
-                throw new ObjectDisposedException(GetType().ToString());
             }
         }
 

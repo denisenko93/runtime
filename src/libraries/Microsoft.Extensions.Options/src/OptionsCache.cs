@@ -28,8 +28,10 @@ namespace Microsoft.Extensions.Options
         /// <param name="name">The name of the options instance.</param>
         /// <param name="createOptions">The func used to create the new instance.</param>
         /// <returns>The options instance.</returns>
-        public virtual TOptions GetOrAdd(string? name, Func<TOptions> createOptions!!)
+        public virtual TOptions GetOrAdd(string? name, Func<TOptions> createOptions)
         {
+            ThrowHelper.ThrowIfNull(createOptions);
+
             name ??= Options.DefaultName;
             Lazy<TOptions> value;
 
@@ -63,7 +65,7 @@ namespace Microsoft.Extensions.Options
 #if NET || NETSTANDARD2_1
             return _cache.GetOrAdd(
                 name ?? Options.DefaultName,
-                static (name, arg) => new Lazy<TOptions>(arg.createOptions(name, arg.factoryArgument)), (createOptions, factoryArgument)).Value;
+                static (name, arg) => new Lazy<TOptions>(() => arg.createOptions(name, arg.factoryArgument)), (createOptions, factoryArgument)).Value;
 #endif
         }
 
@@ -91,8 +93,10 @@ namespace Microsoft.Extensions.Options
         /// <param name="name">The name of the options instance.</param>
         /// <param name="options">The options instance.</param>
         /// <returns>Whether anything was added.</returns>
-        public virtual bool TryAdd(string? name, TOptions options!!)
+        public virtual bool TryAdd(string? name, TOptions options)
         {
+            ThrowHelper.ThrowIfNull(options);
+
             return _cache.TryAdd(name ?? Options.DefaultName, new Lazy<TOptions>(
 #if !(NET || NETSTANDARD2_1)
                 () =>

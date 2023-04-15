@@ -365,7 +365,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
         pamTracker->Track(pAllocator->GetHighFrequencyHeap()->AllocMem(S_SIZE_T(sizeof(MethodTableWriteableData))));
     pMT->SetWriteableData(pMTWriteableData);
 
-    // This also disables IBC logging until the type is sufficiently intitialized so
+    // This also disables IBC logging until the type is sufficiently initialized so
     // it needs to be done early
     pMTWriteableData->SetIsNotFullyLoadedForBuildMethodTable();
 
@@ -402,8 +402,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
             StackSString ssElemName;
             elemTypeHnd.GetName(ssElemName);
 
-            StackScratchBuffer scratch;
-            elemTypeHnd.GetAssembly()->ThrowTypeLoadException(ssElemName.GetUTF8(scratch), IDS_CLASSLOAD_VALUECLASSTOOLARGE);
+            elemTypeHnd.GetAssembly()->ThrowTypeLoadException(ssElemName.GetUTF8(), IDS_CLASSLOAD_VALUECLASSTOOLARGE);
         }
     }
 
@@ -457,7 +456,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
       InterfaceInfo_t *pIntInfo = (InterfaceInfo_t *) (pMTHead + imapOffset + index * sizeof(InterfaceInfo_t));
       pIntInfo->SetMethodTable((pParentClass->GetInterfaceMap() + index)->GetMethodTable());
     }
-    pMT->SetInterfaceMap(pParentClass->GetNumInterfaces(), (InterfaceInfo_t *)(pMTHead + imapOffset));
+    pMT->SetInterfaceMap((WORD)pParentClass->GetNumInterfaces(), (InterfaceInfo_t *)(pMTHead + imapOffset));
 
     // Copy down flags for these interfaces as well. This is simplified a bit since we know that System.Array
     // only has a few interfaces and the flags will fit inline into the MethodTable's optional members.
@@ -510,8 +509,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
 #ifdef _DEBUG
     StackSString debugName;
     TypeString::AppendType(debugName, TypeHandle(pMT));
-    StackScratchBuffer buff;
-    const char* pDebugNameUTF8 = debugName.GetUTF8(buff);
+    const char* pDebugNameUTF8 = debugName.GetUTF8();
     S_SIZE_T safeLen = S_SIZE_T(strlen(pDebugNameUTF8))+S_SIZE_T(1);
     if(safeLen.IsOverflow()) COMPlusThrowHR(COR_E_OVERFLOW);
     size_t len = safeLen.Value();
@@ -532,7 +530,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
                             + 3;        // for rank specific Get, Set, Address
 
         MethodDescChunk * pChunks = MethodDescChunk::CreateChunk(pAllocator->GetHighFrequencyHeap(),
-                            dwMethodDescs, mcArray, FALSE /* fNonVtableSlot*/, FALSE /* fNativeCodeSlot */, FALSE /* fComPlusCallInfo */,
+                            dwMethodDescs, mcArray, FALSE /* fNonVtableSlot*/, FALSE /* fNativeCodeSlot */,
                             pMT, pamTracker);
         pClass->SetChunks(pChunks);
 
@@ -586,59 +584,65 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
     }
 
     // Set up GC information
-    if (elemType == ELEMENT_TYPE_VALUETYPE || elemType == ELEMENT_TYPE_VOID)
+    if (CorTypeInfo::IsObjRef(elemType) ||
+        ((elemType == ELEMENT_TYPE_VALUETYPE) && pElemMT->IsAllGCPointers()))
+    {
+        pMT->SetContainsPointers();
+
+        // This array is all GC Pointers
+        CGCDesc::GetCGCDescFromMT(pMT)->Init( pMT, 1 );
+
+        CGCDescSeries* pSeries = CGCDesc::GetCGCDescFromMT(pMT)->GetHighestSeries();
+
+        int offsetToData = ArrayBase::GetDataPtrOffset(pMT);
+        // For arrays, the size is the negative of the BaseSize (the GC always adds the total
+        // size of the object, so what you end up with is the size of the data portion of the array)
+        pSeries->SetSeriesSize(-(SSIZE_T)(offsetToData + sizeof(size_t)));
+        pSeries->SetSeriesOffset(offsetToData);
+    }
+    else if (elemType == ELEMENT_TYPE_VALUETYPE)
     {
         // If it's an array of value classes, there is a different format for the GCDesc if it contains pointers
         if (pElemMT->ContainsPointers())
         {
-            CGCDescSeries  *pSeries;
-
-            // There must be only one series for value classes
-            CGCDescSeries  *pByValueSeries = CGCDesc::GetCGCDescFromMT(pElemMT)->GetHighestSeries();
-
             pMT->SetContainsPointers();
+
+            CGCDescSeries* pElemSeries = CGCDesc::GetCGCDescFromMT(pElemMT)->GetHighestSeries();
 
             // negative series has a special meaning, indicating a different form of GCDesc
             SSIZE_T nSeries = (SSIZE_T) CGCDesc::GetCGCDescFromMT(pElemMT)->GetNumSeries();
             CGCDesc::GetCGCDescFromMT(pMT)->InitValueClassSeries(pMT, nSeries);
 
-            pSeries = CGCDesc::GetCGCDescFromMT(pMT)->GetHighestSeries();
+            CGCDescSeries* pSeries = CGCDesc::GetCGCDescFromMT(pMT)->GetHighestSeries();
 
-            // sort by offset
-            SSIZE_T AllocSizeSeries;
-            if (!ClrSafeInt<SSIZE_T>::multiply(sizeof(CGCDescSeries*), nSeries, AllocSizeSeries))
-                COMPlusThrowOM();
-            CGCDescSeries** sortedSeries = (CGCDescSeries**) _alloca(AllocSizeSeries);
-            int index;
-            for (index = 0; index < nSeries; index++)
-                sortedSeries[index] = &pByValueSeries[-index];
-
-            // section sort
-            for (int i = 0; i < nSeries; i++) {
-                for (int j = i+1; j < nSeries; j++)
-                    if (sortedSeries[j]->GetSeriesOffset() < sortedSeries[i]->GetSeriesOffset())
-                    {
-                        CGCDescSeries* temp = sortedSeries[i];
-                        sortedSeries[i] = sortedSeries[j];
-                        sortedSeries[j] = temp;
-                    }
+#if _DEBUG
+            // GC series must be sorted by the offset
+            // we will validate that here just in case.
+            size_t prevOffset = pElemSeries[0].GetSeriesOffset();
+            for (int index = 1; index < nSeries; index++)
+            {
+                size_t offset = pElemSeries[-index].GetSeriesOffset();
+                _ASSERTE((offset - prevOffset) > 0);
+                prevOffset = offset;
             }
+#endif // _DEBUG
 
             // Offset of the first pointer in the array
             // This equals the offset of the first pointer if this were an array of entirely pointers, plus the offset of the
             // first pointer in the value class
             pSeries->SetSeriesOffset(ArrayBase::GetDataPtrOffset(pMT)
-                + (sortedSeries[0]->GetSeriesOffset()) - OBJECT_SIZE);
-            for (index = 0; index < nSeries; index ++)
+                + (pElemSeries[0].GetSeriesOffset()) - OBJECT_SIZE);
+
+            for (int index = 0; index < nSeries; index ++)
             {
-                size_t numPtrsInBytes = sortedSeries[index]->GetSeriesSize()
+                size_t numPtrsInBytes = pElemSeries[-index].GetSeriesSize()
                     + pElemMT->GetBaseSize();
                 size_t currentOffset;
                 size_t skip;
-                currentOffset = sortedSeries[index]->GetSeriesOffset()+numPtrsInBytes;
+                currentOffset = pElemSeries[-index].GetSeriesOffset()+numPtrsInBytes;
                 if (index != nSeries-1)
                 {
-                    skip = sortedSeries[index+1]->GetSeriesOffset()-currentOffset;
+                    skip = pElemSeries[-(index+1)].GetSeriesOffset()-currentOffset;
                 }
                 else if (index == 0)
                 {
@@ -646,7 +650,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
                 }
                 else
                 {
-                    skip = sortedSeries[0]->GetSeriesOffset() + pElemMT->GetBaseSize()
+                    skip = pElemSeries[0].GetSeriesOffset() + pElemMT->GetBaseSize()
                          - OBJECT_BASESIZE - currentOffset;
                 }
 
@@ -657,8 +661,7 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
                     StackSString ssElemName;
                     elemTypeHnd.GetName(ssElemName);
 
-                    StackScratchBuffer scratch;
-                    elemTypeHnd.GetAssembly()->ThrowTypeLoadException(ssElemName.GetUTF8(scratch),
+                    elemTypeHnd.GetAssembly()->ThrowTypeLoadException(ssElemName.GetUTF8(),
                                                                       IDS_CLASSLOAD_VALUECLASSTOOLARGE);
                 }
 
@@ -667,22 +670,6 @@ MethodTable* Module::CreateArrayMethodTable(TypeHandle elemTypeHnd, CorElementTy
                 val_item->set_val_serie_item (NumPtrs, (unsigned short)skip);
             }
         }
-    }
-    else if (CorTypeInfo::IsObjRef(elemType))
-    {
-        CGCDescSeries  *pSeries;
-
-        pMT->SetContainsPointers();
-
-        // This array is all GC Pointers
-        CGCDesc::GetCGCDescFromMT(pMT)->Init( pMT, 1 );
-
-        pSeries = CGCDesc::GetCGCDescFromMT(pMT)->GetHighestSeries();
-
-        pSeries->SetSeriesOffset(ArrayBase::GetDataPtrOffset(pMT));
-        // For arrays, the size is the negative of the BaseSize (the GC always adds the total
-        // size of the object, so what you end up with is the size of the data portion of the array)
-        pSeries->SetSeriesSize(-(SSIZE_T)(pMT->GetBaseSize()));
     }
 
     // If we get here we are assuming that there was no truncation. If this is not the case then
@@ -1124,13 +1111,17 @@ void GenerateArrayOpScript(ArrayMethodDesc *pMD, ArrayOpScript *paos)
     ArgIterator argit(&msig);
 
 #ifdef TARGET_X86
-    paos->m_cbretpop = argit.CbStackPop();
+    UINT stackPop = argit.CbStackPop();
+    _ASSERTE(stackPop <= USHRT_MAX);
+    paos->m_cbretpop = (UINT16)stackPop;
 #endif
 
     if (argit.HasRetBuffArg())
     {
         paos->m_flags |= ArrayOpScript::HASRETVALBUFFER;
-        paos->m_fRetBufLoc = argit.GetRetBuffArgOffset();
+        UINT refBuffOffset = argit.GetRetBuffArgOffset();
+        _ASSERTE(refBuffOffset <= USHRT_MAX);
+        paos->m_fRetBufLoc = (UINT16)refBuffOffset;
     }
 
     if (paos->m_op == ArrayOpScript::LOADADDR)
@@ -1149,7 +1140,9 @@ void GenerateArrayOpScript(ArrayMethodDesc *pMD, ArrayOpScript *paos)
 
     if (paos->m_op == paos->STORE)
     {
-        paos->m_fValLoc = argit.GetNextOffset();
+        UINT offset = argit.GetNextOffset();
+        _ASSERTE(offset <= USHRT_MAX);
+        paos->m_fValLoc = (UINT16)offset;
     }
 }
 
@@ -1177,7 +1170,7 @@ public:
         if (s_pArrayStubCache == NULL)
         {
             ArrayStubCache * pArrayStubCache = new ArrayStubCache(SystemDomain::GetGlobalLoaderAllocator()->GetStubHeap());
-            if (FastInterlockCompareExchangePointer(&s_pArrayStubCache, pArrayStubCache, NULL) != NULL)
+            if (InterlockedCompareExchangeT(&s_pArrayStubCache, pArrayStubCache, NULL) != NULL)
                 delete pArrayStubCache;
         }
 
@@ -1248,7 +1241,7 @@ BOOL IsImplicitInterfaceOfSZArray(MethodTable *pInterfaceMT)
 // Calls to (IList<T>)(array).Meth are actually implemented by SZArrayHelper.Meth<T>
 // This workaround exists for two reasons:
 //
-//    - For working set reasons, we don't want insert these methods in the array hierachy
+//    - For working set reasons, we don't want insert these methods in the array hierarchy
 //      in the normal way.
 //    - For platform and devtime reasons, we still want to use the C# compiler to generate
 //      the method bodies.
@@ -1313,7 +1306,7 @@ CorElementType GetNormalizedIntegralArrayElementType(CorElementType elementType)
     _ASSERTE(CorTypeInfo::IsPrimitiveType_NoThrow(elementType));
 
     // Array Primitive types such as E_T_I4 and E_T_U4 are interchangeable
-    // Enums with interchangeable underlying types are interchangable
+    // Enums with interchangeable underlying types are interchangeable
     // BOOL is NOT interchangeable with I1/U1, neither CHAR -- with I2/U2
 
     switch (elementType)

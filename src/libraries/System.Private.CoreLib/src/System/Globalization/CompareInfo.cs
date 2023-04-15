@@ -60,8 +60,10 @@ namespace System.Globalization
         /// assembly for the specified culture.
         /// Warning: The assembly versioning mechanism is dead!
         /// </summary>
-        public static CompareInfo GetCompareInfo(int culture, Assembly assembly!!)
+        public static CompareInfo GetCompareInfo(int culture, Assembly assembly)
         {
+            ArgumentNullException.ThrowIfNull(assembly);
+
             // Parameter checking.
             if (assembly != typeof(object).Module.Assembly)
             {
@@ -76,8 +78,11 @@ namespace System.Globalization
         /// assembly for the specified culture.
         /// The purpose of this method is to provide version for CompareInfo tables.
         /// </summary>
-        public static CompareInfo GetCompareInfo(string name!!, Assembly assembly!!)
+        public static CompareInfo GetCompareInfo(string name, Assembly assembly)
         {
+            ArgumentNullException.ThrowIfNull(name);
+            ArgumentNullException.ThrowIfNull(assembly);
+
             if (assembly != typeof(object).Module.Assembly)
             {
                 throw new ArgumentException(SR.Argument_OnlyMscorlib, nameof(assembly));
@@ -103,8 +108,10 @@ namespace System.Globalization
         /// <summary>
         /// Get the CompareInfo for the specified culture.
         /// </summary>
-        public static CompareInfo GetCompareInfo(string name!!)
+        public static CompareInfo GetCompareInfo(string name)
         {
+            ArgumentNullException.ThrowIfNull(name);
+
             return CultureInfo.GetCultureInfo(name).CompareInfo;
         }
 
@@ -113,8 +120,10 @@ namespace System.Globalization
             return IsSortable(new ReadOnlySpan<char>(in ch));
         }
 
-        public static bool IsSortable(string text!!)
+        public static bool IsSortable(string text)
         {
+            ArgumentNullException.ThrowIfNull(text);
+
             return IsSortable(text.AsSpan());
         }
 
@@ -372,15 +381,11 @@ namespace System.Globalization
             // We know a bounds check error occurred. Now we just need to figure
             // out the correct error message to surface.
 
-            if (length1 < 0 || length2 < 0)
-            {
-                throw new ArgumentOutOfRangeException((length1 < 0) ? nameof(length1) : nameof(length2), SR.ArgumentOutOfRange_NeedPosNum);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(length1);
+            ArgumentOutOfRangeException.ThrowIfNegative(length2);
 
-            if (offset1 < 0 || offset2 < 0)
-            {
-                throw new ArgumentOutOfRangeException((offset1 < 0) ? nameof(offset1) : nameof(offset2), SR.ArgumentOutOfRange_NeedPosNum);
-            }
+            ArgumentOutOfRangeException.ThrowIfNegative(offset1);
+            ArgumentOutOfRangeException.ThrowIfNegative(offset2);
 
             if (offset1 > (string1 == null ? 0 : string1.Length) - length1)
             {
@@ -482,6 +487,10 @@ namespace System.Globalization
         private unsafe int CompareStringCore(ReadOnlySpan<char> string1, ReadOnlySpan<char> string2, CompareOptions options) =>
             GlobalizationMode.UseNls ?
                 NlsCompareString(string1, string2, options) :
+#if TARGET_BROWSER
+            GlobalizationMode.Hybrid ?
+                JsCompareString(string1, string2, options) :
+#endif
                 IcuCompareString(string1, string2, options);
 
         /// <summary>

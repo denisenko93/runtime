@@ -90,6 +90,14 @@ struct DLDD
     DWORD     C;
 };
 
+struct DLDDD
+{
+    DWORDLONG A;
+    DWORD     B;
+    DWORD     C;
+    DWORD     D;
+};
+
 struct Agnostic_CORINFO_METHODNAME_TOKENin
 {
     DWORDLONG ftn;
@@ -190,13 +198,6 @@ struct Agnostic_GetOSRInfo
     unsigned ilOffset;
 };
 
-struct Agnostic_GetFieldAddress
-{
-    DWORDLONG ppIndirection;
-    DWORDLONG fieldAddress;
-    DWORD     fieldValue;
-};
-
 struct Agnostic_GetStaticFieldCurrentClass
 {
     DWORDLONG classHandle;
@@ -248,7 +249,6 @@ struct Agnostic_CORINFO_RUNTIME_LOOKUP
     DWORD     helper;
     DWORD     indirections;
     DWORD     testForNull;
-    DWORD     testForFixup;
     WORD      sizeOffset;
     DWORDLONG offsets[CORINFO_MAXINDIRECTIONS];
     DWORD     indirectFirstOffset;
@@ -388,9 +388,6 @@ struct Agnostic_AppendClassNameIn
 {
     DWORD     nBufLenIsZero;
     DWORDLONG classHandle;
-    DWORD     fNamespace;
-    DWORD     fFullInst;
-    DWORD     fAssembly;
 };
 
 struct Agnostic_AppendClassNameOut
@@ -466,6 +463,19 @@ struct Agnostic_GetClassModuleIdForStatics
     DWORDLONG result;
 };
 
+struct Agnostic_GetIsClassInitedFlagAddress
+{
+    Agnostic_CORINFO_CONST_LOOKUP addr;
+    DWORD                         offset;
+    DWORD                         result;
+};
+
+struct Agnostic_GetStaticBaseAddress
+{
+    Agnostic_CORINFO_CONST_LOOKUP addr;
+    DWORD                         result;
+};
+
 struct Agnostic_IsCompatibleDelegate
 {
     DWORDLONG objCls;
@@ -506,6 +516,19 @@ struct Agnostic_GetProfilingHandle
     DWORD     bHookFunction;
     DWORDLONG ProfilerHandle;
     DWORD     bIndirectedHandles;
+};
+
+struct Agnostic_GetThreadLocalStaticBlocksInfo
+{
+    Agnostic_CORINFO_CONST_LOOKUP tlsIndex;
+    UINT                          offsetOfThreadLocalStoragePointer;
+    UINT                          offsetOfMaxThreadStaticBlocks;
+    UINT                          offsetOfThreadStaticBlocks;
+};
+
+struct Agnostic_GetThreadLocalFieldInfo
+{
+    DWORD staticBlockIndex;
 };
 
 struct Agnostic_GetTailCallHelpers
@@ -767,6 +790,18 @@ struct Agnostic_RecordCallSite
 {
     Agnostic_CORINFO_SIG_INFO callSig;
     DWORDLONG                 methodHandle;
+};
+
+struct Agnostic_PrintResult
+{
+    // Required size of a buffer to contain everything including null terminator.
+    // UINT_MAX if it was not determined during recording.
+    DWORD requiredBufferSize;
+    // Index of stored string buffer. We always store this without null terminator.
+    // May be UINT_MAX if no buffer was stored.
+    DWORD stringBuffer;
+    // The size of the buffer stored by stringBuffer.
+    DWORD stringBufferSize;
 };
 
 #pragma pack(pop)

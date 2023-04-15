@@ -6,10 +6,15 @@ namespace System.Reflection.TypeLoading
     /// <summary>
     /// Base class for all Type and TypeInfo objects created by a MetadataLoadContext.
     /// </summary>
-    internal abstract partial class RoType
+    internal partial class RoType
     {
-        public sealed override Type? GetInterface(string name!!, bool ignoreCase)
+        public sealed override Type? GetInterface(string name, bool ignoreCase)
         {
+            if (name is null)
+            {
+                throw new ArgumentNullException(nameof(name));
+            }
+
             name.SplitTypeName(out string ns, out string simpleName);
 
             Type? match = null;

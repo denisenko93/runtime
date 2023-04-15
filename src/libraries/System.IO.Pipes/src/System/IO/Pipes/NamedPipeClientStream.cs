@@ -87,9 +87,11 @@ namespace System.IO.Pipes
         }
 
         // Create a NamedPipeClientStream from an existing server pipe handle.
-        public NamedPipeClientStream(PipeDirection direction, bool isAsync, bool isConnected, SafePipeHandle safePipeHandle!!)
+        public NamedPipeClientStream(PipeDirection direction, bool isAsync, bool isConnected, SafePipeHandle safePipeHandle)
             : base(direction, 0)
         {
+            ArgumentNullException.ThrowIfNull(safePipeHandle);
+
             if (safePipeHandle.IsInvalid)
             {
                 throw new ArgumentException(SR.Argument_InvalidHandle, nameof(safePipeHandle));
@@ -117,10 +119,7 @@ namespace System.IO.Pipes
         {
             CheckConnectOperationsClient();
 
-            if (timeout < 0 && timeout != Timeout.Infinite)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout), SR.ArgumentOutOfRange_InvalidTimeout);
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(timeout, Timeout.Infinite);
 
             ConnectInternal(timeout, CancellationToken.None, Environment.TickCount);
         }
@@ -144,7 +143,7 @@ namespace System.IO.Pipes
                 }
 
                 // Try to connect.
-                if (TryConnect(waitTime, cancellationToken))
+                if (TryConnect(waitTime))
                 {
                     return;
                 }
@@ -181,10 +180,7 @@ namespace System.IO.Pipes
         {
             CheckConnectOperationsClient();
 
-            if (timeout < 0 && timeout != Timeout.Infinite)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout), SR.ArgumentOutOfRange_InvalidTimeout);
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(timeout, Timeout.Infinite);
 
             if (cancellationToken.IsCancellationRequested)
             {
@@ -192,7 +188,12 @@ namespace System.IO.Pipes
             }
 
             int startTime = Environment.TickCount; // We need to measure time here, not in the lambda
-            return Task.Run(() => ConnectInternal(timeout, cancellationToken, startTime), cancellationToken);
+
+            return Task.Factory.StartNew(static state =>
+            {
+                var tuple = ((NamedPipeClientStream stream, int timeout, CancellationToken cancellationToken, int startTime))state!;
+                tuple.stream.ConnectInternal(tuple.timeout, tuple.cancellationToken, tuple.startTime);
+            }, (this, timeout, cancellationToken, startTime), cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
         }
 
         public Task ConnectAsync(TimeSpan timeout, CancellationToken cancellationToken = default) =>
@@ -201,10 +202,8 @@ namespace System.IO.Pipes
         private static int ToTimeoutMilliseconds(TimeSpan timeout)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;
-            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
-            {
-                throw new ArgumentOutOfRangeException(nameof(timeout));
-            }
+            ArgumentOutOfRangeException.ThrowIfLessThan(totalMilliseconds, -1, nameof(timeout));
+            ArgumentOutOfRangeException.ThrowIfGreaterThan(totalMilliseconds, int.MaxValue, nameof(timeout));
             return (int)totalMilliseconds;
         }
 

@@ -24,12 +24,14 @@ if(CLR_CMAKE_HOST_WIN32)
     )
 
     target_link_libraries(createdump
+        PRIVATE
         kernel32.lib
         ${STATIC_MT_CRT_LIB}
         advapi32.lib
         version.lib
         dbghelp.lib
         ws2_32.lib
+        ntdll.lib
     )
 
 else(CLR_CMAKE_HOST_WIN32)
@@ -82,6 +84,7 @@ else()
 endif(CLR_CMAKE_HOST_OSX)
 
     target_link_libraries(createdump
+        PRIVATE
         corguids
         dbgutil
         # share the PAL in the dac module

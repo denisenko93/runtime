@@ -115,7 +115,7 @@ namespace System.ComponentModel.Composition
 
         internal static void Constructor_DirectoryAsCodeBaseArgument_ShouldThrowFileLoad(Func<string, AssemblyCatalog> catalogCreator)
         {
-            string directory = Environment.GetFolderPath(Environment.SpecialFolder.System);
+            string directory = Environment.SystemDirectory;
             Assert.True(Directory.Exists(directory));
 
             Assert.Throws<FileLoadException>(() => catalogCreator(directory));
@@ -381,7 +381,7 @@ namespace System.ComponentModel.Composition
         }
 
         //=========================================================================================================================================
-        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitonOrigin) constructor
+        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitionOrigin) constructor
         //=========================================================================================================================================
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/24240")]
@@ -490,7 +490,7 @@ namespace System.ComponentModel.Composition
         }
 
         //=========================================================================================================================================
-        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitonOrigin, ReflectionContext reflectionContext) constructor
+        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitionOrigin, ReflectionContext reflectionContext) constructor
         //=========================================================================================================================================
         [Fact]
         public void Constructor4_ValueAsCodebaseArgument_ShouldSetAssemblyProperty()
@@ -606,7 +606,7 @@ namespace System.ComponentModel.Composition
             });
         }
         //=========================================================================================================================================
-        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitonOrigin) constructor
+        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitionOrigin) constructor
         //=========================================================================================================================================
         [Fact]
         [ActiveIssue("https://github.com/dotnet/runtime/issues/24240")]
@@ -671,7 +671,7 @@ namespace System.ComponentModel.Composition
         }
 
         //=========================================================================================================================================
-        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitonOrigin, ReflectionContext reflectionContext) constructor
+        //  Test cases for AssemblyCatalog(string codebase, ICompositionElement definitionOrigin, ReflectionContext reflectionContext) constructor
         //=========================================================================================================================================
         [Fact]
         public void Constructor8_ValueAsAssemblyArgument_ShouldSetAssemblyProperty()

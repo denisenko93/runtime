@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections.Generic;
@@ -82,8 +82,13 @@ namespace System.Text.Json.Nodes
             ((IDictionary<string, JsonNode?>)this).TryGetValue(propertyName, out jsonNode);
 
         /// <inheritdoc/>
-        public override void WriteTo(Utf8JsonWriter writer!!, JsonSerializerOptions? options = null)
+        public override void WriteTo(Utf8JsonWriter writer, JsonSerializerOptions? options = null)
         {
+            if (writer is null)
+            {
+                ThrowHelper.ThrowArgumentNullException(nameof(writer));
+            }
+
             if (_jsonElement.HasValue)
             {
                 // Write the element without converting to nodes.
@@ -91,7 +96,7 @@ namespace System.Text.Json.Nodes
             }
             else
             {
-                options ??= JsonSerializerOptions.Default;
+                options ??= s_defaultOptions;
 
                 writer.WriteStartObject();
 
@@ -123,7 +128,7 @@ namespace System.Text.Json.Nodes
                 InitializeIfRequired();
                 Debug.Assert(_dictionary != null);
                 string propertyName = _dictionary.FindValue(child)!.Value.Key;
-                if (propertyName.IndexOfAny(ReadStack.SpecialCharacters) != -1)
+                if (propertyName.AsSpan().ContainsSpecialCharacters())
                 {
                     path.Add($"['{propertyName}']");
                 }
@@ -133,10 +138,7 @@ namespace System.Text.Json.Nodes
                 }
             }
 
-            if (Parent != null)
-            {
-                Parent.GetPath(path, this);
-            }
+            Parent?.GetPath(path, this);
         }
 
         internal void SetItem(string propertyName, JsonNode? value)
@@ -162,7 +164,7 @@ namespace System.Text.Json.Nodes
         private sealed class DebugView
         {
             [DebuggerBrowsable(DebuggerBrowsableState.Never)]
-            private JsonObject _node;
+            private readonly JsonObject _node;
 
             public DebugView(JsonObject node)
             {

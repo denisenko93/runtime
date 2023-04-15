@@ -29,10 +29,12 @@ namespace System.Collections
         {
         }
 
-        public object? this[object key!!]
+        public object? this[object key]
         {
             get
             {
+                ArgumentNullException.ThrowIfNull(key);
+
                 DictionaryNode? node = head;
 
                 while (node != null)
@@ -47,6 +49,8 @@ namespace System.Collections
             }
             set
             {
+                ArgumentNullException.ThrowIfNull(key);
+
                 version++;
                 DictionaryNode? last = null;
                 DictionaryNode? node;
@@ -94,8 +98,10 @@ namespace System.Collections
 
         public ICollection Values => new NodeKeyValueCollection(this, false);
 
-        public void Add(object key!!, object? value)
+        public void Add(object key, object? value)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             version++;
             DictionaryNode? last = null;
             for (DictionaryNode? node = head; node != null; node = node.next)
@@ -129,8 +135,10 @@ namespace System.Collections
             version++;
         }
 
-        public bool Contains(object key!!)
+        public bool Contains(object key)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             for (DictionaryNode? node = head; node != null; node = node.next)
             {
                 if (node.key.Equals(key))
@@ -141,13 +149,14 @@ namespace System.Collections
             return false;
         }
 
-        public void CopyTo(Array array!!, int index)
+        public void CopyTo(Array array, int index)
         {
+            ArgumentNullException.ThrowIfNull(array);
+
             if (array.Rank != 1)
                 throw new ArgumentException(SR.Arg_RankMultiDimNotSupported);
 
-            if (index < 0)
-                throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
+            ArgumentOutOfRangeException.ThrowIfNegative(index);
 
             if (array.Length - index < this.Count)
                 throw new ArgumentException(SR.ArgumentOutOfRange_IndexMustBeLessOrEqual, nameof(index));
@@ -169,8 +178,10 @@ namespace System.Collections
             return new NodeEnumerator(this);
         }
 
-        public void Remove(object key!!)
+        public void Remove(object key)
         {
+            ArgumentNullException.ThrowIfNull(key);
+
             version++;
             DictionaryNode? last = null;
             DictionaryNode? node;
@@ -293,12 +304,13 @@ namespace System.Collections
                 this.isKeys = isKeys;
             }
 
-            void ICollection.CopyTo(Array array!!, int index)
+            void ICollection.CopyTo(Array array, int index)
             {
+                ArgumentNullException.ThrowIfNull(array);
+
                 if (array.Rank != 1)
                     throw new ArgumentException(SR.Arg_RankMultiDimNotSupported);
-                if (index < 0)
-                    throw new ArgumentOutOfRangeException(nameof(index), SR.ArgumentOutOfRange_NeedNonNegNum);
+                ArgumentOutOfRangeException.ThrowIfNegative(index);
                 if (array.Length - index < list.Count)
                     throw new ArgumentException(SR.ArgumentOutOfRange_IndexMustBeLessOrEqual, nameof(index));
                 for (DictionaryNode? node = list.head; node != null; node = node.next)

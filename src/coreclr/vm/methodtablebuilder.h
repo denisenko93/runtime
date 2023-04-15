@@ -73,22 +73,7 @@ public:
           m_pAllocMemTracker(pAllocMemTracker)
     {
         LIMITED_METHOD_CONTRACT;
-        SetBMTData(
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL,
-            NULL);
+        SetBMTData();
     }
 public:
     //==========================================================================
@@ -195,7 +180,7 @@ private:
     WORD GetNumStaticFields() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->GetNumStaticFields(); }
     WORD GetNumInstanceFields() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->GetNumInstanceFields(); }
     BOOL IsInterface() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->IsInterface(); }
-    BOOL HasOverLayedField() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->HasOverLayedField(); }
+    BOOL HasOverlaidField() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->HasOverlaidField(); }
     BOOL IsComImport() { WRAPPER_NO_CONTRACT; return GetHalfBakedClass()->IsComImport(); }
 #ifdef FEATURE_COMINTEROP
     void SetIsComClassInterface() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetIsComClassInterface(); }
@@ -233,7 +218,6 @@ private:
     // we create the EEClass object, and thus set the flags immediately at the point
     // we create that object.</NICE>
     void SetUnsafeValueClass() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetUnsafeValueClass(); }
-    void SetCannotBeBlittedByObjectCloner() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetCannotBeBlittedByObjectCloner(); }
     void SetHasFieldsWhichMustBeInited() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetHasFieldsWhichMustBeInited(); }
     void SetHasNonPublicFields() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetHasNonPublicFields(); }
     void SetModuleDynamicID(DWORD x) { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetModuleDynamicID(x); }
@@ -242,7 +226,7 @@ private:
     void SetNumBoxedRegularStatics(WORD x) { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetNumBoxedRegularStatics(x); }
     void SetNumBoxedThreadStatics(WORD x) { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetNumBoxedThreadStatics(x); }
     void SetAlign8Candidate() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetAlign8Candidate(); }
-    void SetHasOverLayedFields() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetHasOverLayedFields(); }
+    void SetHasOverlaidFields() { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetHasOverlaidFields(); }
     void SetNonGCRegularStaticFieldBytes(DWORD x) { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetNonGCRegularStaticFieldBytes(x); }
     void SetNonGCThreadStaticFieldBytes(DWORD x) { WRAPPER_NO_CONTRACT; GetHalfBakedClass()->SetNonGCThreadStaticFieldBytes(x); }
 #ifdef _DEBUG
@@ -783,9 +767,9 @@ private:
 
         //-----------------------------------------------------------------------------------------
         // Returns the substitution to be used in interpreting the signature.
-        const Substitution &
+        const Substitution *
         GetSubstitution() const
-            { return *m_pSubst; }
+            { return m_pSubst; }
 
         //-----------------------------------------------------------------------------------------
         // Returns true if the names are equal; otherwise returns false. This is a
@@ -2026,7 +2010,9 @@ private:
         DWORD NumInstanceGCPointerFields;   // does not include inherited pointer fields
         DWORD NumGCPointerSeries;
         DWORD NumInstanceFieldBytes;
+        DWORD NumInlineArrayElements;
 
+        bool  fIsAllGCPointers;
         bool  fIsByRefLikeType;
         bool  fHasFixedAddressValueTypes;
         bool  fHasSelfReferencingStaticValueTypeField_WithRVA;
@@ -2073,7 +2059,7 @@ private:
 
     // --------------------------------------------------------------------------------------------
     // Used for analyzing overlapped fields defined by explicit layout types.
-    enum bmtFieldLayoutTag {empty, nonoref, oref, byref};
+    enum bmtFieldLayoutTag : BYTE {empty, nonoref, oref, byref};
 
     // --------------------------------------------------------------------------------------------
     // used for calculating pointer series for tdexplicit
@@ -2226,21 +2212,21 @@ private:
     bmtEnumFieldInfo *bmtEnumFields;
 
     void SetBMTData(
-        LoaderAllocator *bmtAllocator,
-        bmtErrorInfo *bmtError,
-        bmtProperties *bmtProp,
-        bmtVtable *bmtVT,
-        bmtParentInfo *bmtParent,
-        bmtInterfaceInfo *bmtInterface,
-        bmtMetaDataInfo *bmtMetaData,
-        bmtMethodInfo *bmtMethod,
-        bmtMethAndFieldDescs *bmtMFDescs,
-        bmtFieldPlacement *bmtFP,
-        bmtInternalInfo *bmtInternal,
-        bmtGCSeriesInfo *bmtGCSeries,
-        bmtMethodImplInfo *bmtMethodImpl,
-        const bmtGenericsInfo *bmtGenerics,
-        bmtEnumFieldInfo *bmtEnumFields);
+        LoaderAllocator *bmtAllocator = NULL,
+        bmtErrorInfo *bmtError = NULL,
+        bmtProperties *bmtProp = NULL,
+        bmtVtable *bmtVT = NULL,
+        bmtParentInfo *bmtParent = NULL,
+        bmtInterfaceInfo *bmtInterface = NULL,
+        bmtMetaDataInfo *bmtMetaData = NULL,
+        bmtMethodInfo *bmtMethod = NULL,
+        bmtMethAndFieldDescs *bmtMFDescs = NULL,
+        bmtFieldPlacement *bmtFP = NULL,
+        bmtInternalInfo *bmtInternal = NULL,
+        bmtGCSeriesInfo *bmtGCSeries = NULL,
+        bmtMethodImplInfo *bmtMethodImpl = NULL,
+        const bmtGenericsInfo *bmtGenerics = NULL,
+        bmtEnumFieldInfo *bmtEnumFields = NULL);
 
     // --------------------------------------------------------------------------------------------
     // Returns the parent bmtRTType pointer. Can be null if no parent exists.
@@ -2916,20 +2902,20 @@ private:
 
     static ExplicitFieldTrust::TrustLevel CheckValueClassLayout(
         MethodTable * pMT,
-        BYTE *    pFieldLayout);
+        bmtFieldLayoutTag* pFieldLayout);
 
     static ExplicitFieldTrust::TrustLevel CheckByRefLikeValueClassLayout(
         MethodTable * pMT,
-        BYTE *    pFieldLayout);
+        bmtFieldLayoutTag* pFieldLayout);
 
     static ExplicitFieldTrust::TrustLevel MarkTagType(
-        BYTE* field,
+        bmtFieldLayoutTag* field,
         SIZE_T size,
         bmtFieldLayoutTag tagType);
 
     void FindPointerSeriesExplicit(
         UINT   instanceSliceSize,
-        BYTE * pFieldLayout);
+        bmtFieldLayoutTag* pFieldLayout);
 
     VOID    HandleGCForExplicitLayout();
 
@@ -2939,7 +2925,7 @@ private:
 
 #ifdef UNIX_AMD64_ABI
     // checks whether the struct is enregisterable.
-    void SystemVAmd64CheckForPassStructInRegister();
+    void SystemVAmd64CheckForPassStructInRegister(MethodTable** pByValueClassCache);
     // Store the eightbyte classification into the EEClass
     void StoreEightByteClassification(SystemVStructRegisterPassingHelper* helper);
 

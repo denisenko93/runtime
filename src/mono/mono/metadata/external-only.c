@@ -14,7 +14,6 @@
 #include "class-internals.h"
 #include "domain-internals.h"
 #include "mono-hash-internals.h"
-#include "mono-config-internals.h"
 #include "object-internals.h"
 #include "class-init.h"
 #include <mono/metadata/assembly.h>
@@ -313,6 +312,22 @@ mono_class_is_subclass_of (MonoClass *klass, MonoClass *klassc, gboolean check_i
 	MONO_EXTERNAL_ONLY_GC_UNSAFE (gboolean, mono_class_is_subclass_of_internal (klass, klassc, check_interfaces));
 }
 
+MonoDomain *
+mono_domain_create_appdomain (char *friendly_name, char *configuration_file)
+{
+	return NULL;
+}
+
+void
+mono_domain_try_unload (MonoDomain *domain, MonoObject **exc)
+{
+}
+
+void
+mono_domain_unload (MonoDomain *domain)
+{
+}
+
 /**
  * mono_domain_set_internal:
  * \param domain the new domain
@@ -598,6 +613,26 @@ mono_context_init (MonoDomain *domain)
 {
 }
 
+void *
+mono_load_remote_field (MonoObject *this_obj, MonoClass *klass, MonoClassField *field, void **res)
+{
+	return NULL;
+}
+
+MonoObject *
+mono_load_remote_field_new (MonoObject *this_obj, MonoClass *klass, MonoClassField *field)
+{
+	return NULL;
+}
+
+void mono_store_remote_field (MonoObject *this_obj, MonoClass *klass, MonoClassField *field, void* val)
+{
+}
+
+void mono_store_remote_field_new (MonoObject *this_obj, MonoClass *klass, MonoClassField *field, MonoObject *arg)
+{
+}
+
 /**
  * mono_domain_set_config:
  * \param domain \c MonoDomain initialized with the appdomain we want to change
@@ -705,4 +740,48 @@ void*
 mono_method_get_unmanaged_callers_only_ftnptr (MonoMethod *method, MonoError *error)
 {
  	MONO_EXTERNAL_ONLY_GC_UNSAFE (gpointer, mono_method_get_unmanaged_wrapper_ftnptr_internal (method, TRUE, error));
+}
+
+void
+mono_marshal_ilgen_init (void)
+{
+}
+
+/*
+ * The mono_win32_compat_* functions are implementations of inline
+ * Windows kernel32 APIs, which are DllImport-able under MS.NET,
+ * although not exported by kernel32.
+ *
+ * We map the appropriate kernel32 entries to these functions using
+ * dllmaps declared in the global etc/mono/config.
+ */
+
+void
+mono_win32_compat_CopyMemory (gpointer dest, gconstpointer source, gsize length)
+{
+	if (!dest || !source)
+		return;
+
+	memcpy (dest, source, length);
+}
+
+void
+mono_win32_compat_FillMemory (gpointer dest, gsize length, guchar fill)
+{
+	memset (dest, fill, length);
+}
+
+void
+mono_win32_compat_MoveMemory (gpointer dest, gconstpointer source, gsize length)
+{
+	if (!dest || !source)
+		return;
+
+	memmove (dest, source, length);
+}
+
+void
+mono_win32_compat_ZeroMemory (gpointer dest, gsize length)
+{
+	memset (dest, 0, length);
 }

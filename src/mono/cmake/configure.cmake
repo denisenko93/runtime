@@ -23,7 +23,7 @@ if(HOST_SOLARIS)
 endif()
 
 if(HOST_WASI)
-  set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS} -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN")
+  set(CMAKE_REQUIRED_DEFINITIONS "${CMAKE_REQUIRED_DEFINITIONS} -D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN")
 endif()
 
 function(ac_check_headers)
@@ -67,7 +67,7 @@ endfunction()
 ac_check_headers (
   sys/types.h sys/stat.h sys/filio.h sys/sockio.h sys/utime.h sys/un.h sys/syscall.h sys/uio.h sys/param.h
   sys/prctl.h sys/socket.h sys/utsname.h sys/select.h sys/poll.h sys/wait.h sys/resource.h
-  sys/ioctl.h sys/errno.h sys/sendfile.h sys/statvfs.h sys/statfs.h sys/mman.h sys/mount.h sys/time.h sys/random.h
+  sys/ioctl.h sys/errno.h sys/statvfs.h sys/statfs.h sys/mman.h sys/mount.h sys/time.h sys/random.h
   strings.h stdint.h unistd.h signal.h setjmp.h syslog.h netdb.h utime.h semaphore.h alloca.h ucontext.h pwd.h elf.h
   gnu/lib-names.h netinet/tcp.h netinet/in.h link.h arpa/inet.h unwind.h poll.h wchar.h
   android/legacy_signal_inlines.h execinfo.h pthread.h pthread_np.h net/if.h dirent.h
@@ -77,29 +77,36 @@ ac_check_headers (
 ac_check_funcs (
   sigaction kill clock_nanosleep backtrace_symbols mkstemp mmap
   getrusage dladdr sysconf getrlimit prctl nl_langinfo
-  sched_getaffinity sched_setaffinity getpwuid_r chmod lstat getdtablesize ftruncate msync
+  sched_getaffinity sched_setaffinity chmod lstat getdtablesize ftruncate msync
   getpeername utime utimes openlog closelog atexit popen strerror_r inet_pton inet_aton
-  poll getfsstat mremap posix_fadvise vsnprintf sendfile statfs statvfs setpgid system
-  fork execv execve waitpid localtime_r mkdtemp getrandom execvp strlcpy stpcpy strtok_r rewinddir
-  vasprintf strndup getpwuid_r getprotobyname getprotobyname_r getaddrinfo mach_absolute_time
+  poll getfsstat mremap posix_fadvise vsnprintf statfs statvfs setpgid system
+  fork execv execve waitpid localtime_r mkdtemp getrandom getentropy execvp strlcpy stpcpy strtok_r rewinddir
+  vasprintf strndup getprotobyname getprotobyname_r getaddrinfo mach_absolute_time
   gethrtime read_real_time gethostbyname gethostbyname2 getnameinfo getifaddrs
   access inet_ntop Qp2getifaddrs getpid mktemp)
 
-if (HOST_LINUX OR HOST_BROWSER)
+if (HOST_LINUX OR HOST_BROWSER OR HOST_WASI)
   # sysctl is deprecated on Linux and doesn't work on Browser
   set(HAVE_SYS_SYSCTL_H 0)
 else ()
   check_include_files("sys/types.h;sys/sysctl.h" HAVE_SYS_SYSCTL_H)
 endif()
 
-check_include_files("sys/types.h;sys/user.h" HAVE_SYS_USER_H)
-
-if(NOT HOST_DARWIN)
-  # getentropy was introduced in macOS 10.12 / iOS 10.0
-  ac_check_funcs (getentropy)
+if (HOST_WASI)
+  # sysctl is deprecated on Linux and doesn't work on WASI
+  set(HAVE_GETRUSAGE 0)
 endif()
 
-find_package(Threads)
+check_include_files("sys/types.h;sys/user.h" HAVE_SYS_USER_H)
+
+if(HOST_IOS OR HOST_MACCAT)
+  # getentropy isn't allowed in the AppStore: https://github.com/rust-lang/rust/issues/102643
+  set(HAVE_GETENTROPY 0)
+endif()
+
+if(NOT DISABLE_THREADS)
+  find_package(Threads)
+endif()
 # Needed to find pthread_ symbols
 set(CMAKE_REQUIRED_LIBRARIES "${CMAKE_REQUIRED_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT}")
 
@@ -129,6 +136,10 @@ check_struct_has_member("struct sockaddr_in6" sin6_len "netinet/in.h" HAVE_SOCKA
 check_struct_has_member("struct stat" st_atim "sys/types.h;sys/stat.h;unistd.h" HAVE_STRUCT_STAT_ST_ATIM)
 check_struct_has_member("struct stat" st_atimespec "sys/types.h;sys/stat.h;unistd.h" HAVE_STRUCT_STAT_ST_ATIMESPEC)
 
+if (HOST_DARWIN)
+  check_struct_has_member("struct objc_super" super_class "objc/runtime.h;objc/message.h" HAVE_OBJC_SUPER_SUPER_CLASS)
+endif()
+
 check_type_size("int" SIZEOF_INT)
 check_type_size("void*" SIZEOF_VOID_P)
 check_type_size("long" SIZEOF_LONG)
@@ -138,6 +149,8 @@ check_type_size("size_t" SIZEOF_SIZE_T)
 if (HOST_LINUX)
   set(CMAKE_REQUIRED_DEFINITIONS -D_GNU_SOURCE)
 endif()
+
+check_symbol_exists(CPU_COUNT "sched.h" HAVE_GNU_CPU_COUNT)
 
 check_c_source_compiles(
   "
@@ -150,17 +163,6 @@ check_c_source_compiles(
   }
   "
   HAVE_GNU_STRERROR_R)
-
-check_c_source_compiles(
-  "
-  #include <sched.h>
-  int main(void)
-  {
-    CPU_COUNT((void *) 0);
-    return 0;
-  }
-  "
-  HAVE_GNU_CPU_COUNT)
 
 if (HOST_LINUX OR HOST_ANDROID)
   set(CMAKE_REQUIRED_DEFINITIONS)
@@ -245,9 +247,7 @@ if(HOST_WIN32)
   set(HAVE_EXECVP 0)
 elseif(HOST_IOS)
   set(HAVE_SYSTEM 0)
-  set(HAVE_GETPWUID_R 0)
   set(HAVE_SYS_USER_H 0)
-  set(HAVE_GETENTROPY 0)
   if(HOST_TVOS)
     set(HAVE_PTHREAD_KILL 0)
     set(HAVE_KILL 0)
@@ -273,7 +273,6 @@ elseif(HOST_WASI)
   set(HAVE_SYS_UN_H 0)
   set(HAVE_NETINET_TCP_H 0)
   set(HAVE_ARPA_INET_H 0)
-  set(HAVE_GETPWUID_R 0)
   set(HAVE_MKDTEMP 0)
   set(HAVE_EXECVE 0)
   set(HAVE_FORK 0)

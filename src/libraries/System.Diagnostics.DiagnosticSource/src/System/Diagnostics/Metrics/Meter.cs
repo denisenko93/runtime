@@ -10,9 +10,6 @@ namespace System.Diagnostics.Metrics
     /// <summary>
     /// Meter is the class responsible for creating and tracking the Instruments.
     /// </summary>
-#if ALLOW_PARTIALLY_TRUSTED_CALLERS
-        [System.Security.SecuritySafeCriticalAttribute]
-#endif
     public class Meter : IDisposable
     {
         private static readonly List<Meter> s_allMeters = new List<Meter>();
@@ -30,9 +27,9 @@ namespace System.Diagnostics.Metrics
         /// </summary>
         /// <param name="name">The Meter name.</param>
         /// <param name="version">The optional Meter version.</param>
-        public Meter(string name!!, string? version)
+        public Meter(string name, string? version)
         {
-            Name = name;
+            Name = name ?? throw new ArgumentNullException(nameof(name));
             Version = version;
 
             lock (Instrument.SyncObject)

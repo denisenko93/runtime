@@ -56,8 +56,8 @@ std::string SpmiDumpHelper::DumpAgnostic_CORINFO_RUNTIME_LOOKUP(
     const Agnostic_CORINFO_RUNTIME_LOOKUP& lookup)
 {
     char buffer[MAX_BUFFER_SIZE];
-    sprintf_s(buffer, MAX_BUFFER_SIZE, " sig-%016llX hlp-%u ind-%u tfn-%u tff-%u so-%u { ", lookup.signature, lookup.helper,
-              lookup.indirections, lookup.testForNull, lookup.testForFixup, lookup.sizeOffset);
+    sprintf_s(buffer, MAX_BUFFER_SIZE, " sig-%016llX hlp-%u ind-%u tfn-%u so-%u { ", lookup.signature, lookup.helper,
+              lookup.indirections, lookup.testForNull, lookup.sizeOffset);
     std::string resultDump(buffer);
     for (int i = 0; i < CORINFO_MAXINDIRECTIONS; i++)
     {
@@ -246,8 +246,6 @@ std::string SpmiDumpHelper::DumpJitFlags(unsigned long long flags)
     AddFlag(OSR);
     AddFlag(ALT_JIT);
 
-    AddFlagNumeric(FEATURE_SIMD, 17);
-
     AddFlag(MAKEFINALCODE);
     AddFlag(READYTORUN);
     AddFlag(PROF_ENTERLEAVE);
@@ -262,7 +260,7 @@ std::string SpmiDumpHelper::DumpJitFlags(unsigned long long flags)
     AddFlag(BBINSTR);
     AddFlag(BBOPT);
     AddFlag(FRAMED);
-
+    AddFlag(BBINSTR_IF_LOOPS);
     AddFlag(PUBLISH_SECRET_PARAM);
 
     AddFlag(SAMPLING_JIT_BACKGROUND);
@@ -283,7 +281,9 @@ std::string SpmiDumpHelper::DumpJitFlags(unsigned long long flags)
     AddFlagNumeric(HAS_PGO, EXTRA_JIT_FLAGS::HAS_PGO);
     AddFlagNumeric(HAS_EDGE_PROFILE, EXTRA_JIT_FLAGS::HAS_EDGE_PROFILE);
     AddFlagNumeric(HAS_CLASS_PROFILE, EXTRA_JIT_FLAGS::HAS_CLASS_PROFILE);
+    AddFlagNumeric(HAS_METHOD_PROFILE, EXTRA_JIT_FLAGS::HAS_METHOD_PROFILE);
     AddFlagNumeric(HAS_LIKELY_CLASS, EXTRA_JIT_FLAGS::HAS_LIKELY_CLASS);
+    AddFlagNumeric(HAS_LIKELY_METHOD, EXTRA_JIT_FLAGS::HAS_LIKELY_METHOD);
     AddFlagNumeric(HAS_STATIC_PROFILE, EXTRA_JIT_FLAGS::HAS_STATIC_PROFILE);
     AddFlagNumeric(HAS_DYNAMIC_PROFILE, EXTRA_JIT_FLAGS::HAS_DYNAMIC_PROFILE);
 

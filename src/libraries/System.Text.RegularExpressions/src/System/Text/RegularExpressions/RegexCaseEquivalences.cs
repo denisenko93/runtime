@@ -16,11 +16,6 @@ namespace System.Text.RegularExpressions
     {
         public const int CharactersPerRange = 1024;
 
-        private static readonly char[] s_specialCasingSetBehaviors = new char[5]
-        {
-            'I', 'i', '\u0130', 'I', '\u0131'
-        };
-
         /// <summary>
         /// Performs a fast lookup which determines if a character is involved in case conversion, as well as
         /// returns the characters that should be considered equivalent in case it does participate in case conversion.
@@ -28,26 +23,31 @@ namespace System.Text.RegularExpressions
         /// culture and will also factor in the current culture in order to handle the special cases which are different between cultures.
         /// </summary>
         /// <param name="c">The character being analyzed</param>
-        /// <param name="culture">The <see cref="CultureInfo"/> to be used to determine the equivalences.</param>
+        /// <param name="culture">The <see cref="CultureInfo"/> to be used to calculate <paramref name="mappingBehavior"/> in case it hasn't been cached.</param>
+        /// <param name="mappingBehavior">The behavior to be used for case comparisons. If the value hasn't been set yet, it will get initialized in the first lookup.</param>
         /// <param name="equivalences">If <paramref name="c"/> is involved in case conversion, then equivalences will contain the
         /// span of character which should be considered equal to <paramref name="c"/> in a case-insensitive comparison.</param>
         /// <returns><see langword="true"/> if <paramref name="c"/> is involved in case conversion; otherwise, <see langword="false"/></returns>
-        public static bool TryFindCaseEquivalencesForCharWithIBehavior(char c, CultureInfo culture, out ReadOnlySpan<char> equivalences)
+        public static bool TryFindCaseEquivalencesForCharWithIBehavior(char c, CultureInfo culture, scoped ref RegexCaseBehavior mappingBehavior, out ReadOnlySpan<char> equivalences)
         {
             if ((c | 0x20) == 'i' || (c | 0x01) == '\u0131')
             {
-                RegexCaseBehavior mappingBehavior = GetRegexBehavior(culture);
+                // If this is the first time that this method is being called then mappingBehavior will be set to default, so we calculate
+                // the behavior to use and cache the value for future lookups.
+                if (mappingBehavior == RegexCaseBehavior.NotSet)
+                    mappingBehavior = GetRegexBehavior(culture);
+
                 equivalences = c switch
                 {
                     // Invariant mappings
-                    'i' or 'I' when mappingBehavior is RegexCaseBehavior.Invariant => s_specialCasingSetBehaviors.AsSpan(0, 2), // 'I' and 'i'
+                    'i' or 'I' when mappingBehavior is RegexCaseBehavior.Invariant => "Ii".AsSpan(),
 
                     // Non-Turkish mappings
-                    'i' or 'I' or '\u0130' when mappingBehavior is RegexCaseBehavior.NonTurkish => s_specialCasingSetBehaviors.AsSpan(0, 3), // 'I', 'i', and '\u0130'
+                    'i' or 'I' or '\u0130' when mappingBehavior is RegexCaseBehavior.NonTurkish => "Ii\u0130".AsSpan(),
 
                     // Turkish mappings
-                    'I' or '\u0131' when mappingBehavior is RegexCaseBehavior.Turkish => s_specialCasingSetBehaviors.AsSpan(3, 2), // 'I' and '\u0131'
-                    'i' or '\u0130' when mappingBehavior is RegexCaseBehavior.Turkish => s_specialCasingSetBehaviors.AsSpan(1, 2), // 'i' and '\u0130'
+                    'I' or '\u0131' when mappingBehavior is RegexCaseBehavior.Turkish => "I\u0131".AsSpan(),
+                    'i' or '\u0130' when mappingBehavior is RegexCaseBehavior.Turkish => "i\u0130".AsSpan(),
 
                     // Default
                     _ => default
@@ -153,7 +153,7 @@ namespace System.Text.RegularExpressions
 
             byte count = (byte)((mappingValue >> 13) & 0b111);
             ushort index3 = (ushort)(mappingValue & 0x1FFF);
-            equivalences = EquivalenceCasingValues.AsSpan(index3, count);
+            equivalences = EquivalenceCasingValues.Slice(index3, count);
 
             return true;
         }

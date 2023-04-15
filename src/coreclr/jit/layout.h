@@ -23,7 +23,7 @@ class ClassLayout
 
     const unsigned m_isValueClass : 1;
     INDEBUG(unsigned m_gcPtrsInitialized : 1;)
-    // The number of GC pointers in this layout. Since the the maximum size is 2^32-1 the count
+    // The number of GC pointers in this layout. Since the maximum size is 2^32-1 the count
     // can fit in at most 30 bits.
     unsigned m_gcPtrCount : 30;
 
@@ -35,11 +35,14 @@ class ClassLayout
         BYTE  m_gcPtrsArray[sizeof(BYTE*)];
     };
 
+    // The normalized type to use in IR for block nodes with this layout.
+    const var_types m_type;
+
     // Class name as reported by ICorJitInfo::getClassName
     INDEBUG(const char* m_className;)
 
     // Shortened class name as constructed by Compiler::eeGetShortClassName()
-    INDEBUG(const char16_t* m_shortClassName;)
+    INDEBUG(const char* m_shortClassName;)
 
     // ClassLayout instances should only be obtained via ClassLayoutTable.
     friend class ClassLayoutTable;
@@ -53,9 +56,10 @@ class ClassLayout
 #endif
         , m_gcPtrCount(0)
         , m_gcPtrs(nullptr)
+        , m_type(TYP_STRUCT)
 #ifdef DEBUG
         , m_className("block")
-        , m_shortClassName(u"block")
+        , m_shortClassName("block")
 #endif
     {
     }
@@ -64,7 +68,8 @@ class ClassLayout
 
     ClassLayout(CORINFO_CLASS_HANDLE classHandle,
                 bool                 isValueClass,
-                unsigned size DEBUGARG(const char* className) DEBUGARG(const char16_t* shortClassName))
+                unsigned             size,
+                var_types type DEBUGARG(const char* className) DEBUGARG(const char* shortClassName))
         : m_classHandle(classHandle)
         , m_size(size)
         , m_isValueClass(isValueClass)
@@ -73,6 +78,7 @@ class ClassLayout
 #endif
         , m_gcPtrCount(0)
         , m_gcPtrs(nullptr)
+        , m_type(type)
 #ifdef DEBUG
         , m_className(className)
         , m_shortClassName(shortClassName)
@@ -101,7 +107,7 @@ public:
         return m_className;
     }
 
-    const char16_t* GetShortClassName() const
+    const char* GetShortClassName() const
     {
         return m_shortClassName;
     }
@@ -110,14 +116,17 @@ public:
 
     bool IsValueClass() const
     {
-        assert(!IsBlockLayout());
-
         return m_isValueClass;
     }
 
     unsigned GetSize() const
     {
         return m_size;
+    }
+
+    var_types GetType() const
+    {
+        return m_type;
     }
 
     //------------------------------------------------------------------------

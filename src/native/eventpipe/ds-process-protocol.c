@@ -91,7 +91,7 @@ static
 uint16_t
 process_info_payload_get_size (DiagnosticsProcessInfoPayload *payload)
 {
-	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/master/documentation/design-docs/ipc-protocol.md
+	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/main/documentation/design-docs/ipc-protocol.md
 	// for definition of serialization format
 
 	// uint64_t ProcessId;  -> 8 bytes
@@ -137,7 +137,7 @@ process_info_payload_flatten (
 	EP_ASSERT (size != NULL);
 	EP_ASSERT (process_info_payload_get_size (process_info) == *size);
 
-	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/master/documentation/design-docs/ipc-protocol.md
+	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/main/documentation/design-docs/ipc-protocol.md
 	// for definition of serialization format
 
 	bool success = true;
@@ -205,7 +205,7 @@ static
 uint16_t
 process_info_2_payload_get_size (DiagnosticsProcessInfo2Payload *payload)
 {
-	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/master/documentation/design-docs/ipc-protocol.md
+	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/main/documentation/design-docs/ipc-protocol.md
 	// for definition of serialization format
 
 	// uint64_t ProcessId;  -> 8 bytes
@@ -261,7 +261,7 @@ process_info_2_payload_flatten (
 	EP_ASSERT (size != NULL);
 	EP_ASSERT (process_info_2_payload_get_size (process_info) == *size);
 
-	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/master/documentation/design-docs/ipc-protocol.md
+	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/main/documentation/design-docs/ipc-protocol.md
 	// for definition of serialization format
 
 	bool success = true;
@@ -361,13 +361,11 @@ env_info_env_block_get_size (DiagnosticsEnvironmentInfoPayload *payload)
 	size_t size = 0;
 
 	size += sizeof (uint32_t);
-	size += (sizeof (uint32_t) * ep_rt_env_array_utf16_size (&payload->env_array));
+	size += (sizeof (uint32_t) * dn_vector_ptr_size (payload->env_array));
 
-	ep_rt_env_array_utf16_iterator_t iterator = ep_rt_env_array_utf16_iterator_begin (&payload->env_array);
-	while (!ep_rt_env_array_utf16_iterator_end (&payload->env_array, &iterator)) {
-		size += ((ep_rt_utf16_string_len (ep_rt_env_array_utf16_iterator_value (&iterator)) + 1) * sizeof (ep_char16_t));
-		ep_rt_env_array_utf16_iterator_next (&iterator);
-	}
+	DN_VECTOR_PTR_FOREACH_BEGIN (ep_char16_t *, env_value, payload->env_array) {
+		size += ((ep_rt_utf16_string_len (env_value) + 1) * sizeof (ep_char16_t));
+	} DN_VECTOR_PTR_FOREACH_END;
 
 	EP_ASSERT (size <= UINT32_MAX);
 	return (uint32_t)size;
@@ -388,7 +386,7 @@ env_info_payload_flatten (
 	EP_ASSERT (size != NULL);
 	EP_ASSERT (env_info_payload_get_size (env_info) == *size);
 
-	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/master/documentation/design-docs/ipc-protocol.md
+	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/main/documentation/design-docs/ipc-protocol.md
 	// for definition of serialization format
 
 	bool success = true;
@@ -420,21 +418,20 @@ env_info_stream_env_block (
 	EP_ASSERT (payload != NULL);
 	EP_ASSERT (stream != NULL);
 
-	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/master/documentation/design-docs/ipc-protocol.md
+	// see IPC spec @ https://github.com/dotnet/diagnostics/blob/main/documentation/design-docs/ipc-protocol.md
 	// for definition of serialization format
 
 	bool success = true;
 	uint32_t bytes_written = 0;
 
 	// Array<Array<WCHAR>>
-	uint32_t env_len = (uint32_t)ep_rt_env_array_utf16_size (&env_info->env_array);
+	uint32_t env_len = dn_vector_ptr_size (env_info->env_array);
+	env_len = ep_rt_val_uint32_t (env_len);
 	success &= ds_ipc_stream_write (stream, (const uint8_t *)&env_len, sizeof (env_len), &bytes_written, EP_INFINITE_WAIT);
 
-	ep_rt_env_array_utf16_iterator_t iterator = ep_rt_env_array_utf16_iterator_begin (&env_info->env_array);
-	while (!ep_rt_env_array_utf16_iterator_end (&env_info->env_array, &iterator)) {
-		success &= ds_ipc_message_try_write_string_utf16_t_to_stream (stream, ep_rt_env_array_utf16_iterator_value (&iterator));
-		ep_rt_env_array_utf16_iterator_next (&iterator);
-	}
+	DN_VECTOR_PTR_FOREACH_BEGIN (ep_char16_t *, env_value, env_info->env_array) {
+		success &= ds_ipc_message_try_write_string_utf16_t_to_stream (stream, env_value);
+	} DN_VECTOR_PTR_FOREACH_END;
 
 	return success;
 }
@@ -444,8 +441,10 @@ ds_env_info_payload_init (DiagnosticsEnvironmentInfoPayload *payload)
 {
 	ep_return_null_if_nok (payload != NULL);
 
-	ep_rt_env_array_utf16_alloc (&payload->env_array);
-	ep_rt_os_environment_get_utf16 (&payload->env_array);
+	payload->env_array = dn_vector_ptr_alloc ();
+	ep_return_null_if_nok (payload->env_array);
+
+	ep_rt_os_environment_get_utf16 (payload->env_array);
 
 	payload->incoming_bytes = env_info_env_block_get_size (payload);
 	payload->future = 0;
@@ -456,13 +455,12 @@ ds_env_info_payload_init (DiagnosticsEnvironmentInfoPayload *payload)
 void
 ds_env_info_payload_fini (DiagnosticsEnvironmentInfoPayload *payload)
 {
-	ep_rt_env_array_utf16_iterator_t iterator = ep_rt_env_array_utf16_iterator_begin (&payload->env_array);
-	while (!ep_rt_env_array_utf16_iterator_end (&payload->env_array, &iterator)) {
-		ep_rt_utf16_string_free (ep_rt_env_array_utf16_iterator_value (&iterator));
-		ep_rt_env_array_utf16_iterator_next (&iterator);
-	}
+	DN_VECTOR_PTR_FOREACH_BEGIN (ep_char16_t *, env_value, payload->env_array) {
+		ep_rt_utf16_string_free (env_value);
+	} DN_VECTOR_PTR_FOREACH_END;
 
-	ep_rt_env_array_utf16_free (&payload->env_array);
+	dn_vector_ptr_free (payload->env_array);
+	payload->env_array = NULL;
 }
 
 /*
@@ -485,13 +483,13 @@ process_protocol_helper_get_process_info (
 	DiagnosticsProcessInfoPayload payload;
 	DiagnosticsProcessInfoPayload *process_info_payload = NULL;
 
-	command_line = ep_rt_utf8_to_utf16_string (ep_rt_diagnostics_command_line_get (), -1);
+	command_line = ep_rt_utf8_to_utf16le_string (ep_rt_diagnostics_command_line_get (), -1);
 	ep_raise_error_if_nok (command_line != NULL);
 
-	os_info = ep_rt_utf8_to_utf16_string (ep_event_source_get_os_info (), -1);
+	os_info = ep_rt_utf8_to_utf16le_string (ep_event_source_get_os_info (), -1);
 	ep_raise_error_if_nok (os_info != NULL);
 
-	arch_info = ep_rt_utf8_to_utf16_string (ep_event_source_get_arch_info (), -1);
+	arch_info = ep_rt_utf8_to_utf16le_string (ep_event_source_get_arch_info (), -1);
 	ep_raise_error_if_nok (arch_info != NULL);
 
 	process_info_payload = ds_process_info_payload_init (
@@ -547,19 +545,19 @@ process_protocol_helper_get_process_info_2 (
 	DiagnosticsProcessInfo2Payload payload;
 	DiagnosticsProcessInfo2Payload *process_info_2_payload = NULL;
 
-	command_line = ep_rt_utf8_to_utf16_string (ep_rt_diagnostics_command_line_get (), -1);
+	command_line = ep_rt_utf8_to_utf16le_string (ep_rt_diagnostics_command_line_get (), -1);
 	ep_raise_error_if_nok (command_line != NULL);
 
-	os_info = ep_rt_utf8_to_utf16_string (ep_event_source_get_os_info (), -1);
+	os_info = ep_rt_utf8_to_utf16le_string (ep_event_source_get_os_info (), -1);
 	ep_raise_error_if_nok (os_info != NULL);
 
-	arch_info = ep_rt_utf8_to_utf16_string (ep_event_source_get_arch_info (), -1);
+	arch_info = ep_rt_utf8_to_utf16le_string (ep_event_source_get_arch_info (), -1);
 	ep_raise_error_if_nok (arch_info != NULL);
 
-	managed_entrypoint_assembly_name = ep_rt_utf8_to_utf16_string (ep_rt_entrypoint_assembly_name_get_utf8 (), -1);
+	managed_entrypoint_assembly_name = ep_rt_utf8_to_utf16le_string (ep_rt_entrypoint_assembly_name_get_utf8 (), -1);
 	ep_raise_error_if_nok (managed_entrypoint_assembly_name != NULL);
 
-	clr_product_version = ep_rt_utf8_to_utf16_string (ep_rt_runtime_version_get_utf8 (), -1);
+	clr_product_version = ep_rt_utf8_to_utf16le_string (ep_rt_runtime_version_get_utf8 (), -1);
 	ep_raise_error_if_nok (clr_product_version != NULL);
 
 	process_info_2_payload = ds_process_info_2_payload_init (
@@ -719,8 +717,8 @@ process_protocol_helper_set_environment_variable (
 	if (!stream)
 		return false;
 
-    bool result = false;
-    DiagnosticsSetEnvironmentVariablePayload *payload = (DiagnosticsSetEnvironmentVariablePayload *)ds_ipc_message_try_parse_payload (message, set_environment_variable_command_try_parse_payload);
+	bool result = false;
+	DiagnosticsSetEnvironmentVariablePayload *payload = (DiagnosticsSetEnvironmentVariablePayload *)ds_ipc_message_try_parse_payload (message, set_environment_variable_command_try_parse_payload);
 	if (!payload) {
 		ds_ipc_message_send_error (stream, DS_IPC_E_BAD_ENCODING);
 		ep_raise_error ();
@@ -739,7 +737,7 @@ process_protocol_helper_set_environment_variable (
 
 ep_on_exit:
 	ds_set_environment_variable_payload_free (payload);
-    ds_ipc_stream_free (stream);
+	ds_ipc_stream_free (stream);
 	return result;
 
 ep_on_error:
@@ -781,7 +779,7 @@ ds_process_protocol_helper_handle_ipc_message (
 		break;
 	case DS_PROCESS_COMMANDID_SET_ENV_VAR:
 		result = process_protocol_helper_set_environment_variable (message, stream);
-        break;
+		break;
 	case DS_PROCESS_COMMANDID_GET_PROCESS_INFO_2:
 		result = process_protocol_helper_get_process_info_2 (message, stream);
 		break;

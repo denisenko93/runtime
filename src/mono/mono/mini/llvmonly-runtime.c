@@ -757,6 +757,12 @@ mini_llvmonly_init_delegate (MonoDelegate *del, MonoDelegateTrampInfo *info)
 	ERROR_DECL (error);
 	MonoFtnDesc *ftndesc;
 
+	if (info && info->is_virtual) {
+		del->method = mono_object_get_virtual_method_internal (del->target, info->method);
+		/* Create a new one below for the new class+method pair */
+		info = NULL;
+	}
+
 	if (!info && !del->method) {
 		// Multicast delegate init
 		// Have to set the invoke_impl field
@@ -771,7 +777,7 @@ mini_llvmonly_init_delegate (MonoDelegate *del, MonoDelegateTrampInfo *info)
 
 	if (G_UNLIKELY (!info)) {
 		g_assert (del->method);
-		info = mono_create_delegate_trampoline_info (del->object.vtable->klass, del->method);
+		info = mono_create_delegate_trampoline_info (del->object.vtable->klass, del->method, FALSE);
 	}
 
 	del->method = info->method;
@@ -803,6 +809,9 @@ mini_llvmonly_init_delegate (MonoDelegate *del, MonoDelegateTrampInfo *info)
 
 	WrapperSubtype subtype = mono_marshal_get_delegate_invoke_subtype (info->invoke, del);
 
+	if (subtype == WRAPPER_SUBTYPE_DELEGATE_INVOKE_BOUND)
+		del->bound = TRUE;
+
 	ftndesc = info->invoke_impl;
 	if (G_UNLIKELY (!ftndesc) || subtype != WRAPPER_SUBTYPE_NONE) {
 		MonoMethod *invoke_impl = mono_marshal_get_delegate_invoke (info->invoke, del);
@@ -818,16 +827,6 @@ mini_llvmonly_init_delegate (MonoDelegate *del, MonoDelegateTrampInfo *info)
 		}
 	}
 	del->invoke_impl = ftndesc;
-}
-
-void
-mini_llvmonly_init_delegate_virtual (MonoDelegate *del, MonoObject *target, MonoMethod *method)
-{
-	g_assert (target);
-
-	del->method = mono_object_get_virtual_method_internal (target, method);
-
-	mini_llvmonly_init_delegate (del, NULL);
 }
 
 /*

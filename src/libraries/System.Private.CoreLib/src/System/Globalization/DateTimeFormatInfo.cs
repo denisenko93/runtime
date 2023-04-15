@@ -5,6 +5,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Runtime.CompilerServices;
+using System.Runtime.InteropServices;
+using System.Text;
 
 namespace System.Globalization
 {
@@ -80,6 +82,11 @@ namespace System.Globalization
         private string? timeSeparator;            // derived from long time (whidbey expects, arrowhead doesn't)
         private string? monthDayPattern;
         private string? dateTimeOffsetPattern;
+
+        private byte[]? amDesignatorUtf8;
+        private byte[]? pmDesignatorUtf8;
+        private byte[]? timeSeparatorUtf8;
+        private byte[]? dateSeparatorUtf8;
 
         private const string rfc1123Pattern = "ddd, dd MMM yyyy HH':'mm':'ss 'GMT'";
 
@@ -228,7 +235,7 @@ namespace System.Globalization
             return monthNames;
         }
 
-        // Invariant DateTimeFormatInfo doesn't have user-overriden values
+        // Invariant DateTimeFormatInfo doesn't have user-overridden values
         // Default calendar is gregorian
         public DateTimeFormatInfo()
             : this(CultureInfo.InvariantCulture._cultureData, GregorianCalendar.GetDefaultInstance())
@@ -249,7 +256,7 @@ namespace System.Globalization
         private void InitializeOverridableProperties(CultureData cultureData, CalendarId calendarId)
         {
             Debug.Assert(cultureData != null);
-            Debug.Assert(calendarId != CalendarId.UNINITIALIZED_VALUE, "[DateTimeFormatInfo.Populate] Expected initalized calendarId");
+            Debug.Assert(calendarId != CalendarId.UNINITIALIZED_VALUE, "[DateTimeFormatInfo.Populate] Expected initialized calendarId");
 
             if (firstDayOfWeek == -1)
             {
@@ -260,22 +267,10 @@ namespace System.Globalization
                 calendarWeekRule = cultureData.CalendarWeekRule;
             }
 
-            if (amDesignator == null)
-            {
-                amDesignator = cultureData.AMDesignator;
-            }
-            if (pmDesignator == null)
-            {
-                pmDesignator = cultureData.PMDesignator;
-            }
-            if (timeSeparator == null)
-            {
-                timeSeparator = cultureData.TimeSeparator;
-            }
-            if (dateSeparator == null)
-            {
-                dateSeparator = cultureData.DateSeparator(calendarId);
-            }
+            amDesignator ??= cultureData.AMDesignator;
+            pmDesignator ??= cultureData.PMDesignator;
+            timeSeparator ??= cultureData.TimeSeparator;
+            dateSeparator ??= cultureData.DateSeparator(calendarId);
 
             allLongTimePatterns = _cultureData.LongTimes;
             Debug.Assert(allLongTimePatterns.Length > 0, "[DateTimeFormatInfo.Populate] Expected some long time patterns");
@@ -358,11 +353,7 @@ namespace System.Globalization
         {
             get
             {
-                if (amDesignator == null)
-                {
-                    amDesignator = _cultureData.AMDesignator;
-                }
-
+                amDesignator ??= _cultureData.AMDesignator;
                 Debug.Assert(amDesignator != null, "DateTimeFormatInfo.AMDesignator, amDesignator != null");
                 return amDesignator;
             }
@@ -376,7 +367,16 @@ namespace System.Globalization
 
                 ClearTokenHashTable();
                 amDesignator = value;
+                amDesignatorUtf8 = null;
             }
+        }
+
+        internal ReadOnlySpan<TChar> AMDesignatorTChar<TChar>() where TChar : unmanaged, IUtfChar<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
+            return typeof(TChar) == typeof(char) ?
+                MemoryMarshal.Cast<char, TChar>(AMDesignator) :
+                MemoryMarshal.Cast<byte, TChar>(amDesignatorUtf8 ??= Encoding.UTF8.GetBytes(AMDesignator));
         }
 
         public Calendar Calendar
@@ -476,8 +476,10 @@ namespace System.Globalization
         /// <summary>
         /// Get the era value by parsing the name of the era.
         /// </summary>
-        public int GetEra(string eraName!!)
+        public int GetEra(string eraName)
         {
+            ArgumentNullException.ThrowIfNull(eraName);
+
             // The Era Name and Abbreviated Era Name
             // for Taiwan Calendar on non-Taiwan SKU returns empty string (which
             // would be matched below) but we don't want the empty string to give
@@ -597,10 +599,7 @@ namespace System.Globalization
         {
             get
             {
-                if (dateSeparator == null)
-                {
-                    dateSeparator = _cultureData.DateSeparator(Calendar.ID);
-                }
+                dateSeparator ??= _cultureData.DateSeparator(Calendar.ID);
                 Debug.Assert(dateSeparator != null, "DateTimeFormatInfo.DateSeparator, dateSeparator != null");
                 return dateSeparator;
             }
@@ -614,7 +613,16 @@ namespace System.Globalization
 
                 ClearTokenHashTable();
                 dateSeparator = value;
+                dateSeparatorUtf8 = null;
             }
+        }
+
+        internal ReadOnlySpan<TChar> DateSeparatorTChar<TChar>() where TChar : unmanaged, IUtfChar<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
+            return typeof(TChar) == typeof(char) ?
+                MemoryMarshal.Cast<char, TChar>(DateSeparator) :
+                MemoryMarshal.Cast<byte, TChar>(dateSeparatorUtf8 ??= Encoding.UTF8.GetBytes(DateSeparator));
         }
 
         public DayOfWeek FirstDayOfWeek
@@ -794,11 +802,7 @@ namespace System.Globalization
         {
             get
             {
-                if (pmDesignator == null)
-                {
-                    pmDesignator = _cultureData.PMDesignator;
-                }
-
+                pmDesignator ??= _cultureData.PMDesignator;
                 Debug.Assert(pmDesignator != null, "DateTimeFormatInfo.PMDesignator, pmDesignator != null");
                 return pmDesignator;
             }
@@ -812,7 +816,16 @@ namespace System.Globalization
 
                 ClearTokenHashTable();
                 pmDesignator = value;
+                pmDesignatorUtf8 = null;
             }
+        }
+
+        internal ReadOnlySpan<TChar> PMDesignatorTChar<TChar>() where TChar : unmanaged, IUtfChar<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
+            return typeof(TChar) == typeof(char) ?
+                MemoryMarshal.Cast<char, TChar>(PMDesignator) :
+                MemoryMarshal.Cast<byte, TChar>(pmDesignatorUtf8 ??= Encoding.UTF8.GetBytes(PMDesignator));
         }
 
         public string RFC1123Pattern => rfc1123Pattern;
@@ -973,10 +986,7 @@ namespace System.Globalization
         {
             get
             {
-                if (timeSeparator == null)
-                {
-                    timeSeparator = _cultureData.TimeSeparator;
-                }
+                timeSeparator ??= _cultureData.TimeSeparator;
                 Debug.Assert(timeSeparator != null, "DateTimeFormatInfo.TimeSeparator, timeSeparator != null");
                 return timeSeparator;
             }
@@ -990,7 +1000,16 @@ namespace System.Globalization
 
                 ClearTokenHashTable();
                 timeSeparator = value;
+                timeSeparatorUtf8 = null;
             }
+        }
+
+        internal ReadOnlySpan<TChar> TimeSeparatorTChar<TChar>() where TChar : unmanaged, IUtfChar<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
+            return typeof(TChar) == typeof(char) ?
+                MemoryMarshal.Cast<char, TChar>(TimeSeparator) :
+                MemoryMarshal.Cast<byte, TChar>(timeSeparatorUtf8 ??= Encoding.UTF8.GetBytes(TimeSeparator));
         }
 
         public string UniversalSortableDateTimePattern => universalSortableDateTimePattern;
@@ -1290,14 +1309,14 @@ namespace System.Globalization
         {
             List<string> results = new List<string>(DEFAULT_ALL_DATETIMES_SIZE);
 
-            for (int i = 0; i < DateTimeFormat.allStandardFormats.Length; i++)
+            foreach (char standardFormat in DateTimeFormat.AllStandardFormats)
             {
-                string[] strings = GetAllDateTimePatterns(DateTimeFormat.allStandardFormats[i]);
-                for (int j = 0; j < strings.Length; j++)
+                foreach (string pattern in GetAllDateTimePatterns(standardFormat))
                 {
-                    results.Add(strings[j]);
+                    results.Add(pattern);
                 }
             }
+
             return results.ToArray();
         }
 
@@ -1583,8 +1602,10 @@ namespace System.Globalization
             }
         }
 
-        public static DateTimeFormatInfo ReadOnly(DateTimeFormatInfo dtfi!!)
+        public static DateTimeFormatInfo ReadOnly(DateTimeFormatInfo dtfi)
         {
+            ArgumentNullException.ThrowIfNull(dtfi);
+
             if (dtfi.IsReadOnly)
             {
                 return dtfi;
@@ -1734,6 +1755,15 @@ namespace System.Globalization
         internal string DecimalSeparator =>
             _decimalSeparator ??=
             new NumberFormatInfo(_cultureData.UseUserOverride ? CultureData.GetCultureData(_cultureData.CultureName, false) : _cultureData).NumberDecimalSeparator;
+
+        private byte[]? _decimalSeparatorUtf8;
+        internal ReadOnlySpan<TChar> DecimalSeparatorTChar<TChar>() where TChar : unmanaged, IUtfChar<TChar>
+        {
+            Debug.Assert(typeof(TChar) == typeof(char) || typeof(TChar) == typeof(byte));
+            return typeof(TChar) == typeof(char) ?
+                MemoryMarshal.Cast<char, TChar>(DecimalSeparator) :
+                MemoryMarshal.Cast<byte, TChar>(_decimalSeparatorUtf8 ??= Encoding.UTF8.GetBytes(DecimalSeparator));
+        }
 
         // Positive TimeSpan Pattern
         private string? _fullTimeSpanPositivePattern;

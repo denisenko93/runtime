@@ -243,13 +243,13 @@ namespace System.Text.Json.Serialization.Tests
             await Task.WhenAll(tasks);
         }
 
-        private async void TestIdTask()
+        private async Task TestIdTask()
         {
             JsonException ex = await Assert.ThrowsAsync<JsonException>(async () => await Serializer.DeserializeWrapper<Employee>(@"{""$id"":1}", s_deserializerOptionsPreserve));
             Assert.Equal("$.$id", ex.Path);
         }
 
-        private async void TestRefTask()
+        private async Task TestRefTask()
         {
             JsonException ex = await Assert.ThrowsAsync<JsonException>(async () => await Serializer.DeserializeWrapper<Employee>(@"{""$ref"":1}", s_deserializerOptionsPreserve));
             Assert.Equal("$.$ref", ex.Path);
@@ -914,7 +914,21 @@ namespace System.Text.Json.Serialization.Tests
         [InlineData(@"{""$iz"": ""1""}", "$.$iz")]
         [InlineData(@"{""$rez"": ""1""}", "$.$rez")]
         [InlineData(@"{""$valuez"": []}", "$.$valuez")]
-        public async Task InvalidMetadataPropertyNameWithSameLengthIsNotRecognized(string json, string expectedPath)
+        [InlineData(@"{""$type"": ""derivedType""}", "$.$type")]
+        [InlineData(@"{""$PropertyWithDollarSign"": ""1""}", "$.$PropertyWithDollarSign")]
+        [InlineData(@"{""$id"" : ""1"", ""$iz"": ""1""}", "$.$iz")]
+        [InlineData(@"{""$id"" : ""1"", ""$rez"": ""1""}", "$.$rez")]
+        [InlineData(@"{""$id"" : ""1"", ""$id"" : 1 }", "$.$id")]
+        [InlineData(@"{""$id"" : ""1"", ""$ref"" : 1 }", "$.$ref")]
+        [InlineData(@"{""$id"" : ""1"", ""$valuez"": ""[]""}", "$.$valuez")]
+        [InlineData(@"{""$id"" : ""1"", ""$type"": ""derivedType""}", "$.$type")]
+        [InlineData(@"{""$id"" : ""1"", ""$PropertyWithDollarSign"": ""1""}", "$.$PropertyWithDollarSign")]
+        [InlineData(@"{""$id"" : ""1"", ""NonMetadataProperty"" : 42, ""$iz"": ""1""}", "$.$iz")]
+        [InlineData(@"{""$id"" : ""1"", ""NonMetadataProperty"" : 42, ""$rez"": ""1""}", "$.$rez")]
+        [InlineData(@"{""$id"" : ""1"", ""NonMetadataProperty"" : 42, ""$valuez"": ""[]""}", "$.$valuez")]
+        [InlineData(@"{""$id"" : ""1"", ""NonMetadataProperty"" : 42, ""$type"": ""derivedType""}", "$.$type")]
+        [InlineData(@"{""$id"" : ""1"", ""NonMetadataProperty"" : 42, ""$PropertyWithDollarSign"": ""1""}", "$.$PropertyWithDollarSign")]
+        public async Task InvalidMetadataPropertyNameIsRejected(string json, string expectedPath)
         {
             JsonException ex = await Assert.ThrowsAsync<JsonException>(async () => await Serializer.DeserializeWrapper<Employee>(json, s_deserializerOptionsPreserve));
             Assert.Equal(expectedPath, ex.Path);

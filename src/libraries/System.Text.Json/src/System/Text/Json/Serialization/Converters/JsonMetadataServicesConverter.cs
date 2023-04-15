@@ -1,4 +1,4 @@
-﻿// Licensed to the .NET Foundation under one or more agreements.
+// Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Diagnostics;
@@ -15,55 +15,35 @@ namespace System.Text.Json.Serialization.Converters
     /// <typeparam name="T">The type to converter</typeparam>
     internal sealed class JsonMetadataServicesConverter<T> : JsonResumableConverter<T>
     {
-        private readonly Func<JsonConverter<T>> _converterCreator;
-
-        private readonly ConverterStrategy _converterStrategy;
-
-        private JsonConverter<T>? _converter;
-
         // A backing converter for when fast-path logic cannot be used.
-        internal JsonConverter<T> Converter
-        {
-            get
-            {
-                _converter ??= _converterCreator();
-                Debug.Assert(_converter != null);
-                Debug.Assert(_converter.ConverterStrategy == _converterStrategy);
-                return _converter;
-            }
-        }
-
-        internal override ConverterStrategy ConverterStrategy => _converterStrategy;
+        internal JsonConverter<T> Converter { get; }
 
         internal override Type? KeyType => Converter.KeyType;
-
         internal override Type? ElementType => Converter.ElementType;
 
         internal override bool ConstructorIsParameterized => Converter.ConstructorIsParameterized;
-
+        internal override bool SupportsCreateObjectDelegate => Converter.SupportsCreateObjectDelegate;
         internal override bool CanHaveMetadata => Converter.CanHaveMetadata;
 
-        public JsonMetadataServicesConverter(Func<JsonConverter<T>> converterCreator!!, ConverterStrategy converterStrategy)
+        public JsonMetadataServicesConverter(JsonConverter<T> converter)
         {
-            _converterCreator = converterCreator;
-            _converterStrategy = converterStrategy;
+            ConverterStrategy = converter.ConverterStrategy;
+            Converter = converter;
         }
 
-        internal override bool OnTryRead(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options, ref ReadStack state, out T? value)
-            => Converter.OnTryRead(ref reader, typeToConvert, options, ref state, out value);
+        internal override bool OnTryRead(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options, scoped ref ReadStack state, out T? value)
+             => Converter.OnTryRead(ref reader, typeToConvert, options, ref state, out value);
 
         internal override bool OnTryWrite(Utf8JsonWriter writer, T value, JsonSerializerOptions options, ref WriteStack state)
         {
             JsonTypeInfo jsonTypeInfo = state.Current.JsonTypeInfo;
-
-            Debug.Assert(options == jsonTypeInfo.Options);
+            Debug.Assert(jsonTypeInfo is JsonTypeInfo<T> typeInfo && typeInfo.SerializeHandler != null);
 
             if (!state.SupportContinuation &&
-                jsonTypeInfo is JsonTypeInfo<T> info &&
-                info.SerializeHandler != null &&
-                info.Options.JsonSerializerContext?.CanUseSerializationLogic == true)
+                jsonTypeInfo.CanUseSerializeHandler &&
+                !state.CurrentContainsMetadata) // Do not use the fast path if state needs to write metadata.
             {
-                info.SerializeHandler(writer, value);
+                ((JsonTypeInfo<T>)jsonTypeInfo).SerializeHandler!(writer, value);
                 return true;
             }
 

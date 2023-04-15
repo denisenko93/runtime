@@ -3,7 +3,7 @@ Param(
     [string] $CoreRootDirectory,
     [string] $BaselineCoreRootDirectory,
     [string] $Architecture="x64",
-    [string] $Framework="net5.0",
+    [string] $Framework,
     [string] $CompilationMode="Tiered",
     [string] $Repository=$env:BUILD_REPOSITORY_NAME,
     [string] $Branch=$env:BUILD_SOURCEBRANCH,
@@ -26,7 +26,8 @@ Param(
     [switch] $DynamicPGO,
     [switch] $FullPGO,
     [switch] $iOSLlvmBuild,
-    [string] $MauiVersion
+    [string] $MauiVersion,
+    [switch] $UseLocalCommitTime
 )
 
 $RunFromPerformanceRepo = ($Repository -eq "dotnet/performance") -or ($Repository -eq "dotnet-performance")
@@ -49,6 +50,8 @@ if ($Internal) {
         "perfowl" { $Queue = "Windows.10.Amd64.20H2.Owl.Perf"  }
         "perfsurf" { $Queue = "Windows.10.Arm64.Perf.Surf"  }
         "perfpixel4a" { $Queue = "Windows.10.Amd64.Pixel.Perf" }
+        "perfampere" { $Queue = "Windows.Server.Arm64.Perf" }
+        "cloudvm" { $Queue = "Windows.10.Amd64" }
         Default { $Queue = "Windows.10.Amd64.19H1.Tiger.Perf" }
     }
     $PerfLabArguments = "--upload-to-perflab-container"
@@ -119,6 +122,12 @@ elseif($FullPGO)
     $SetupArguments = "$SetupArguments --full-pgo"
 }
 
+if($UseLocalCommitTime)
+{
+    $LocalCommitTime = (git show -s --format=%ci $CommitSha)
+    $SetupArguments = "$SetupArguments --commit-time `"$LocalCommitTime`""
+}
+
 if ($RunFromPerformanceRepo) {
     $SetupArguments = "--perf-hash $CommitSha $CommonSetupArguments"
     
@@ -154,27 +163,7 @@ if ($AndroidMono) {
     {
         mkdir $WorkItemDirectory
     }
-
-    Copy-Item -path "$SourceDirectory\androidHelloWorld\HelloAndroid.apk" $PayloadDirectory -Verbose      
-    Copy-Item -path "$SourceDirectory\MauiAndroidDefault.apk" $PayloadDirectory -Verbose
-    Copy-Item -path "$SourceDirectory\MauiAndroidPodcast.apk" $PayloadDirectory -Verbose
-    $SetupArguments = $SetupArguments -replace $Architecture, 'arm64'
-}
-
-if ($iOSMono) {
-    if(!(Test-Path $WorkItemDirectory))
-    {
-        mkdir $WorkItemDirectory
-    }
-    if($iOSLlvmBuild) {
-        Copy-Item -path "$SourceDirectory\iosHelloWorld\llvm" $PayloadDirectory\iosHelloWorld\llvm -Recurse
-    } else {
-        Copy-Item -path "$SourceDirectory\iosHelloWorld\nollvm" $PayloadDirectory\iosHelloWorld\nollvm -Recurse
-        Copy-Item -path "$SourceDirectory\MauiiOSDefaultIPA" $PayloadDirectory\MauiiOSDefaultIPA -Recurse
-        Copy-Item -path "$SourceDirectory\MauiMacCatalystDefault\MauiMacCatalystDefault.app" $PayloadDirectory\MauiMacCatalystDefault -Recurse
-        Copy-Item -path "$SourceDirectory\MauiiOSPodcastIPA" $PayloadDirectory\MauiiOSPodcastIPA -Recurse
-    }
-
+    Copy-Item -path "$SourceDirectory\androidHelloWorld\HelloAndroid.apk" $PayloadDirectory -Verbose
     $SetupArguments = $SetupArguments -replace $Architecture, 'arm64'
 }
 

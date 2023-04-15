@@ -1,3 +1,4 @@
+#ifndef HOST_WASI
 #include <glib.h>
 #include <mono/mini/mini.h>
 #include <mono/mini/mini-runtime.h>
@@ -14,6 +15,7 @@
 #include "debugger-protocol.h"
 #include "debugger-agent.h"
 #include <mono/metadata/components.h>
+#include <mono/utils/mono-threads-api.h>
 
 //XXX This is dirty, extend ee.h to support extracting info from MonoInterpFrameHandle
 #include <mono/mini/interp/interp-internals.h>
@@ -39,7 +41,7 @@ EMSCRIPTEN_KEEPALIVE gboolean mono_wasm_send_dbg_command_with_parms (int id, Mdb
 
 
 //JS functions imported that we use
-extern void mono_wasm_fire_debugger_agent_message (void);
+extern void mono_wasm_fire_debugger_agent_message_with_data (const char *data, int len);
 extern void mono_wasm_asm_loaded (const char *asm_name, const char *assembly_data, guint32 assembly_len, const char *pdb_data, guint32 pdb_len);
 
 G_END_DECLS
@@ -87,10 +89,10 @@ try_process_suspend (void *tls, MonoContext *ctx, gboolean from_breakpoint)
 	return FALSE;
 }
 
-static gboolean
+static bool
 begin_breakpoint_processing (void *tls, MonoContext *ctx, MonoJitInfo *ji, gboolean from_signal)
 {
-	return TRUE;
+	return mono_begin_breakpoint_processing(tls, ctx, ji, from_signal);
 }
 
 static void
@@ -136,7 +138,7 @@ mono_wasm_enable_debugging_internal (int debug_level)
 {
 	log_level = debug_level;
 	if (debug_level != 0) {
-		PRINT_DEBUG_MSG (1, "DEBUGGING ENABLED\n");
+		wasm_debugger_log(1, "DEBUGGING ENABLED\n");
 		debugger_enabled = TRUE;
 	}
 }
@@ -216,6 +218,8 @@ assembly_loaded (MonoProfiler *prof, MonoAssembly *assembly)
 static void
 mono_wasm_single_step_hit (void)
 {
+	if (mono_wasm_is_breakpoint_and_stepping_disabled ())
+		return;
 	mono_de_process_single_step (mono_wasm_get_tls (), FALSE);
 }
 
@@ -231,7 +235,7 @@ write_value_to_buffer (MdbgProtBuffer *buf, MonoTypeEnum type, const char* varia
 	char* endptr = NULL;
 	const char *variableValueEnd = variableValue + strlen(variableValue);
 	errno = 0;
-	buffer_add_byte (buf, type);
+	buffer_add_byte (buf, GINT_TO_UINT8 (type));
 	switch (type) {
 		case MONO_TYPE_BOOLEAN:
 			if (!strcasecmp (variableValue, "True"))
@@ -343,6 +347,7 @@ write_value_to_buffer (MdbgProtBuffer *buf, MonoTypeEnum type, const char* varia
 EMSCRIPTEN_KEEPALIVE void
 mono_wasm_set_is_debugger_attached (gboolean is_attached)
 {
+	MONO_ENTER_GC_UNSAFE;
 	mono_set_is_debugger_attached (is_attached);
 	if (is_attached && has_pending_lazy_loaded_assemblies)
 	{
@@ -354,12 +359,15 @@ mono_wasm_set_is_debugger_attached (gboolean is_attached)
 		g_ptr_array_free (assemblies, TRUE);
 		has_pending_lazy_loaded_assemblies = FALSE;
 	}
+	MONO_EXIT_GC_UNSAFE;
 }
 
 EMSCRIPTEN_KEEPALIVE void
 mono_wasm_change_debugger_log_level (int new_log_level)
 {
+	MONO_ENTER_GC_UNSAFE;
 	mono_change_log_level (new_log_level);
+	MONO_EXIT_GC_UNSAFE;
 }
 
 extern void mono_wasm_add_dbg_command_received(mono_bool res_ok, int id, void* buffer, int buffer_len);
@@ -367,57 +375,94 @@ extern void mono_wasm_add_dbg_command_received(mono_bool res_ok, int id, void* b
 EMSCRIPTEN_KEEPALIVE gboolean
 mono_wasm_send_dbg_command_with_parms (int id, MdbgProtCommandSet command_set, int command, guint8* data, unsigned int size, int valtype, char* newvalue)
 {
+	gboolean result = FALSE;
+	MONO_ENTER_GC_UNSAFE;
 	if (!debugger_enabled) {
+		PRINT_ERROR_MSG ("DEBUGGING IS NOT ENABLED\n");
 		mono_wasm_add_dbg_command_received (0, id, 0, 0);
-		return TRUE;
+		result = TRUE;
+		goto done;
 	}
 	MdbgProtBuffer bufWithParms;
-	buffer_init (&bufWithParms, 128);
+	m_dbgprot_buffer_init (&bufWithParms, 128);
 	m_dbgprot_buffer_add_data (&bufWithParms, data, size);
 	if (!write_value_to_buffer(&bufWithParms, valtype, newvalue)) {
 		mono_wasm_add_dbg_command_received(0, id, 0, 0);
-		return TRUE;
+		result = TRUE;
+		goto done;
 	}
 	mono_wasm_send_dbg_command(id, command_set, command, bufWithParms.buf, m_dbgprot_buffer_len(&bufWithParms));
 	buffer_free (&bufWithParms);
-	return TRUE;
+	result = TRUE;
+done:
+	MONO_EXIT_GC_UNSAFE;
+	return result;
 }
 
 EMSCRIPTEN_KEEPALIVE gboolean
 mono_wasm_send_dbg_command (int id, MdbgProtCommandSet command_set, int command, guint8* data, unsigned int size)
 {
+	gboolean result = FALSE;
+	MONO_ENTER_GC_UNSAFE;
 	if (!debugger_enabled) {
+		PRINT_ERROR_MSG ("DEBUGGING IS NOT ENABLED\n");
 		mono_wasm_add_dbg_command_received(0, id, 0, 0);
-		return TRUE;
+		result = TRUE;
+		goto done;
 	}
 	ss_calculate_framecount (NULL, NULL, TRUE, NULL, NULL);
 	MdbgProtBuffer buf;
-	buffer_init (&buf, 128);
 	gboolean no_reply;
 	MdbgProtErrorCode error = 0;
 	if (command_set == MDBGPROT_CMD_SET_VM && command == MDBGPROT_CMD_VM_INVOKE_METHOD )
 	{
+		m_dbgprot_buffer_init (&buf, 128);
 		DebuggerTlsData* tls = mono_wasm_get_tls ();
 		InvokeData invoke_data;
 		memset (&invoke_data, 0, sizeof (InvokeData));
 		invoke_data.endp = data + size;
+		invoke_data.flags = INVOKE_FLAG_DISABLE_BREAKPOINTS_AND_STEPPING;
 		error = mono_do_invoke_method (tls, &buf, &invoke_data, data, &data);
 	}
+	else if (command_set == MDBGPROT_CMD_SET_VM && (command ==  MDBGPROT_CMD_GET_ASSEMBLY_BYTES))
+	{
+		char* assembly_name = m_dbgprot_decode_string (data, &data, data + size);
+		if (assembly_name == NULL)
+		{
+			m_dbgprot_buffer_init (&buf, 128);
+			m_dbgprot_buffer_add_int (&buf, 0);
+			m_dbgprot_buffer_add_int (&buf, 0);
+		}
+		else
+		{
+			unsigned int assembly_size = 0;
+			int symfile_size = 0;
+			const unsigned char* assembly_bytes = mono_wasm_get_assembly_bytes (assembly_name, &assembly_size);
+			const unsigned char* pdb_bytes = mono_get_symfile_bytes_from_bundle (assembly_name, &symfile_size);
+			m_dbgprot_buffer_init (&buf, assembly_size + symfile_size);
+			m_dbgprot_buffer_add_byte_array (&buf, (uint8_t *) assembly_bytes, assembly_size);
+			m_dbgprot_buffer_add_byte_array (&buf, (uint8_t *) pdb_bytes, symfile_size);
+		}
+	}
 	else
+	{
+		m_dbgprot_buffer_init (&buf, 128);
 		error = mono_process_dbg_packet (id, command_set, command, &no_reply, data, data + size, &buf);
+	}
 
 	mono_wasm_add_dbg_command_received (error == MDBGPROT_ERR_NONE, id, buf.buf, buf.p-buf.buf);
 
-	buffer_free (&buf);
-	return TRUE;
+	m_dbgprot_buffer_free (&buf);
+	result = TRUE;
+done:
+	MONO_EXIT_GC_UNSAFE;
+	return result;
 }
 
 static gboolean
 receive_debugger_agent_message (void *data, int len)
 {
-	mono_wasm_add_dbg_command_received(1, 0, data, len);
-	mono_wasm_save_thread_context();
-	mono_wasm_fire_debugger_agent_message ();
+	mono_wasm_fire_debugger_agent_message_with_data ((const char*)data, len);
 	return FALSE;
 }
 
@@ -448,3 +493,5 @@ mini_wasm_debugger_add_function_pointers (MonoComponentDebugger* fn_table)
 	fn_table->mono_wasm_breakpoint_hit = mono_wasm_breakpoint_hit;
 	fn_table->mono_wasm_single_step_hit = mono_wasm_single_step_hit;
 }
+
+#endif

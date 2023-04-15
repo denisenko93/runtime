@@ -232,13 +232,14 @@ namespace System.Globalization
 
             for (int i = 0; i < icuFormatString.Length; i++)
             {
-                switch (icuFormatString[i])
+                char current = icuFormatString[i];
+                switch (current)
                 {
                     case '\'':
                         result[resultPos++] = icuFormatString[i++];
                         while (i < icuFormatString.Length)
                         {
-                            char current = icuFormatString[i];
+                            current = icuFormatString[i];
                             result[resultPos++] = current;
                             if (current == '\'')
                             {
@@ -254,13 +255,10 @@ namespace System.Globalization
                     case 'h':
                     case 'm':
                     case 's':
-                        result[resultPos++] = icuFormatString[i];
-                        break;
-
                     case ' ':
-                    case '\u00A0':
-                        // Convert nonbreaking spaces into regular spaces
-                        result[resultPos++] = ' ';
+                    case '\u00A0': // no-break space
+                    case '\u202F': // narrow no-break space
+                        result[resultPos++] = current;
                         break;
 
                     case 'a': // AM/PM
@@ -431,7 +429,7 @@ namespace System.Globalization
             {
                 char c = subject[i];
 
-                if ((uint)(c - 'A') <= ('Z' - 'A') || (uint)(c - 'a') <= ('z' - 'a') || (uint)(c - '0') <= ('9' - '0') || c == '\0')
+                if (char.IsAsciiLetterOrDigit(c) || c == '\0')
                 {
                     continue;
                 }

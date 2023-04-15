@@ -5,6 +5,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
+using System.Reflection.Metadata;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading;
@@ -15,18 +16,18 @@ namespace System.Reflection
     internal sealed partial class RuntimeConstructorInfo : ConstructorInfo, IRuntimeMethodInfo
     {
         #region Private Data Members
-        private volatile RuntimeType m_declaringType;
-        private RuntimeTypeCache m_reflectedTypeCache;
+        private readonly RuntimeType m_declaringType;
+        private readonly RuntimeTypeCache m_reflectedTypeCache;
         private string? m_toString;
         private ParameterInfo[]? m_parameters; // Created lazily when GetParameters() is called.
-#pragma warning disable CA1823, 414, 169
+#pragma warning disable CA1823, 414, 169, IDE0044
         private object? _empty1; // These empties are used to ensure that RuntimeConstructorInfo and RuntimeMethodInfo are have a layout which is sufficiently similar
         private object? _empty2;
         private object? _empty3;
-#pragma warning restore CA1823, 414, 169
-        private IntPtr m_handle;
-        private MethodAttributes m_methodAttributes;
-        private BindingFlags m_bindingFlags;
+#pragma warning restore CA1823, 414, 169, IDE0044
+        private readonly IntPtr m_handle;
+        private readonly MethodAttributes m_methodAttributes;
+        private readonly BindingFlags m_bindingFlags;
         private Signature? m_signature;
         private ConstructorInvoker? m_invoker;
 
@@ -72,7 +73,8 @@ namespace System.Reflection
         RuntimeMethodHandleInternal IRuntimeMethodInfo.Value => new RuntimeMethodHandleInternal(m_handle);
 
         internal override bool CacheEquals(object? o) =>
-            o is RuntimeConstructorInfo m && m.m_handle == m_handle;
+            o is RuntimeConstructorInfo m && m.m_handle == m_handle &&
+            ReferenceEquals(m_declaringType, m.m_declaringType);
 
         internal Signature Signature
         {
@@ -95,27 +97,6 @@ namespace System.Reflection
 
         internal BindingFlags BindingFlags => m_bindingFlags;
 
-
-        [DebuggerStepThrough]
-        [DebuggerHidden]
-        internal unsafe object InvokeNonEmitUnsafe(object? obj, IntPtr* args, Span<object?> argsForTemporaryMonoSupport, BindingFlags invokeAttr)
-        {
-            if ((invokeAttr & BindingFlags.DoNotWrapExceptions) == 0)
-            {
-                try
-                {
-                    return RuntimeMethodHandle.InvokeMethod(obj, (void**)args, Signature, isConstructor: obj is null)!;
-                }
-                catch (Exception ex)
-                {
-                    throw new TargetInvocationException(ex);
-                }
-            }
-            else
-            {
-                return RuntimeMethodHandle.InvokeMethod(obj, (void**)args, Signature, isConstructor: obj is null)!;
-            }
-        }
         #endregion
 
         #region Object Overrides
@@ -139,6 +120,13 @@ namespace System.Reflection
 
             return m_toString;
         }
+
+        public override bool Equals(object? obj) =>
+            ReferenceEquals(this, obj) ||
+            (MetadataUpdater.IsSupported && CacheEquals(obj));
+
+        public override int GetHashCode() =>
+            HashCode.Combine(m_handle.GetHashCode(), m_declaringType.GetUnderlyingNativeHandle().GetHashCode());
         #endregion
 
         #region ICustomAttributeProvider
@@ -147,16 +135,20 @@ namespace System.Reflection
             return CustomAttribute.GetCustomAttributes(this, (typeof(object) as RuntimeType)!);
         }
 
-        public override object[] GetCustomAttributes(Type attributeType!!, bool inherit)
+        public override object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
+            ArgumentNullException.ThrowIfNull(attributeType);
+
             if (attributeType.UnderlyingSystemType is not RuntimeType attributeRuntimeType)
                 throw new ArgumentException(SR.Arg_MustBeType, nameof(attributeType));
 
             return CustomAttribute.GetCustomAttributes(this, attributeRuntimeType);
         }
 
-        public override bool IsDefined(Type attributeType!!, bool inherit)
+        public override bool IsDefined(Type attributeType, bool inherit)
         {
+            ArgumentNullException.ThrowIfNull(attributeType);
+
             if (attributeType.UnderlyingSystemType is not RuntimeType attributeRuntimeType)
                 throw new ArgumentException(SR.Arg_MustBeType, nameof(attributeType));
 

@@ -419,6 +419,16 @@ public:
         return *this;
     }
 
+    PhasedVar& operator|=(const T& value)
+    {
+#ifdef DEBUG
+        assert(m_writePhase);
+        m_initialized = true;
+#endif // DEBUG
+        m_value |= value;
+        return *this;
+    }
+
     // Note: if you need more <op>= functions, you can define them here, like operator&=
 
     // Assign a value, but don't assert if we're not in the write phase, and
@@ -703,6 +713,10 @@ public:
 
     static float infinite_float();
 
+    static bool isAllBitsSet(float val);
+
+    static bool isAllBitsSet(double val);
+
     static bool isNegative(float val);
 
     static bool isNegative(double val);
@@ -711,6 +725,10 @@ public:
 
     static bool isNaN(double val);
 
+    static bool isNegativeZero(double val);
+
+    static bool isPositiveZero(double val);
+
     static double maximum(double val1, double val2);
 
     static float maximum(float val1, float val2);
@@ -718,6 +736,56 @@ public:
     static double minimum(double val1, double val2);
 
     static float minimum(float val1, float val2);
+
+    static double normalize(double x);
+};
+
+class BitOperations
+{
+public:
+    static uint32_t BitScanForward(uint32_t value);
+
+    static uint32_t BitScanForward(uint64_t value);
+
+    static uint32_t BitScanReverse(uint32_t value);
+
+    static uint32_t BitScanReverse(uint64_t value);
+
+    static uint64_t DoubleToUInt64Bits(double value);
+
+    static uint32_t LeadingZeroCount(uint32_t value);
+
+    static uint32_t LeadingZeroCount(uint64_t value);
+
+    static uint32_t Log2(uint32_t value);
+
+    static uint32_t Log2(uint64_t value);
+
+    static uint32_t PopCount(uint32_t value);
+
+    static uint32_t PopCount(uint64_t value);
+
+    static uint32_t ReverseBits(uint32_t value);
+
+    static uint64_t ReverseBits(uint64_t value);
+
+    static uint32_t RotateLeft(uint32_t value, uint32_t offset);
+
+    static uint64_t RotateLeft(uint64_t value, uint32_t offset);
+
+    static uint32_t RotateRight(uint32_t value, uint32_t offset);
+
+    static uint64_t RotateRight(uint64_t value, uint32_t offset);
+
+    static uint32_t SingleToUInt32Bits(float value);
+
+    static uint32_t TrailingZeroCount(uint32_t value);
+
+    static uint32_t TrailingZeroCount(uint64_t value);
+
+    static float UInt32BitsToSingle(uint32_t value);
+
+    static double UInt64BitsToDouble(uint64_t value);
 };
 
 // The CLR requires that critical section locks be initialized via its ClrCreateCriticalSection API...but
@@ -811,6 +879,7 @@ template <typename T>
 bool FitsIn(var_types type, T value)
 {
     static_assert_no_msg((std::is_same<T, int32_t>::value || std::is_same<T, int64_t>::value ||
+                          std::is_same<T, size_t>::value || std::is_same<T, ssize_t>::value ||
                           std::is_same<T, uint32_t>::value || std::is_same<T, uint64_t>::value));
 
     switch (type)

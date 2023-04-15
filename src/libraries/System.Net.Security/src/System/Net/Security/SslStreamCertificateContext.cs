@@ -8,8 +8,10 @@ namespace System.Net.Security
 {
     public partial class SslStreamCertificateContext
     {
-        internal readonly X509Certificate2 Certificate;
-        internal readonly X509Certificate2[] IntermediateCertificates;
+        public readonly X509Certificate2 Certificate;
+        public ReadOnlySpan<X509Certificate2> IntermediateCertificates => _intermediateCertificates;
+
+        private readonly X509Certificate2[] _intermediateCertificates;
         internal readonly SslCertificateTrust? Trust;
 
         [EditorBrowsable(EditorBrowsableState.Never)]
@@ -20,12 +22,24 @@ namespace System.Net.Security
 
         public static SslStreamCertificateContext Create(X509Certificate2 target, X509Certificate2Collection? additionalCertificates, bool offline = false, SslCertificateTrust? trust = null)
         {
+            return Create(target, additionalCertificates, offline, trust, noOcspFetch: false);
+        }
+
+        internal static SslStreamCertificateContext Create(
+            X509Certificate2 target,
+            X509Certificate2Collection? additionalCertificates,
+            bool offline,
+            SslCertificateTrust? trust,
+            bool noOcspFetch)
+        {
             if (!target.HasPrivateKey)
             {
                 throw new NotSupportedException(SR.net_ssl_io_no_server_cert);
             }
 
             X509Certificate2[] intermediates = Array.Empty<X509Certificate2>();
+            X509Certificate2? root = null;
+
             using (X509Chain chain = new X509Chain())
             {
                 if (additionalCertificates != null)
@@ -56,12 +70,15 @@ namespace System.Net.Security
                     if (TrimRootCertificate)
                     {
                         count--;
+                        root = chain.ChainElements[chain.ChainElements.Count - 1].Certificate;
+
                         foreach (X509ChainStatus status in chain.ChainStatus)
                         {
                             if (status.Status.HasFlag(X509ChainStatusFlags.PartialChain))
                             {
                                 // The last cert isn't a root cert
                                 count++;
+                                root = null;
                                 break;
                             }
                         }
@@ -81,20 +98,42 @@ namespace System.Net.Security
                     // Dispose the copy of the target cert.
                     chain.ChainElements[0].Certificate.Dispose();
 
-                    // Dispose the last cert, if we didn't include it.
-                    for (int i = count + 1; i < chain.ChainElements.Count; i++)
+                    // Dispose of the certificates that we do not need. If we are holding on to the root,
+                    // don't dispose of it.
+                    int stopDisposingChainPosition = root is null ?
+                        chain.ChainElements.Count :
+                        chain.ChainElements.Count - 1;
+
+                    for (int i = count + 1; i < stopDisposingChainPosition; i++)
                     {
                         chain.ChainElements[i].Certificate.Dispose();
                     }
                 }
             }
 
-            return new SslStreamCertificateContext(target, intermediates, trust);
+            SslStreamCertificateContext ctx = new SslStreamCertificateContext(target, intermediates, trust);
+
+            // On Linux, AddRootCertificate will start a background download of an OCSP response,
+            // unless this context was built "offline", or this came from the internal Create(X509Certificate2)
+            ctx.SetNoOcspFetch(offline || noOcspFetch);
+
+            bool transferredOwnership = false;
+            ctx.AddRootCertificate(root, ref transferredOwnership);
+
+            if (!transferredOwnership)
+            {
+                root?.Dispose();
+            }
+
+            return ctx;
         }
+
+        partial void AddRootCertificate(X509Certificate2? rootCertificate, ref bool transferredOwnership);
+        partial void SetNoOcspFetch(bool noOcspFetch);
 
         internal SslStreamCertificateContext Duplicate()
         {
-            return new SslStreamCertificateContext(new X509Certificate2(Certificate), IntermediateCertificates, Trust);
+            return new SslStreamCertificateContext(new X509Certificate2(Certificate), _intermediateCertificates, Trust);
         }
     }
 }

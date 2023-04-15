@@ -155,7 +155,7 @@ alloc_dreg (MonoCompile *cfg, MonoStackType stack_type)
 		(dest) = (MonoInst *)mono_mempool_alloc ((cfg)->mempool, sizeof (MonoInst)); \
 		(dest)->inst_i0 = (dest)->inst_i1 = 0; \
 		(dest)->next = (dest)->prev = NULL; \
-		(dest)->opcode = (op); \
+		(dest)->opcode = GINT_TO_OPCODE ((op)); \
 		(dest)->flags = 0; \
 		(dest)->type = 0; \
 		(dest)->dreg = -1; \
@@ -307,6 +307,8 @@ alloc_dreg (MonoCompile *cfg, MonoStackType stack_type)
 
 #define NEW_LDSTRCONST(cfg,dest,image,token) NEW_AOTCONST_TOKEN ((cfg), (dest), MONO_PATCH_INFO_LDSTR, (image), (token), NULL, STACK_OBJ, mono_defaults.string_class)
 
+#define NEW_RVACONST(cfg,dest,image,token) NEW_AOTCONST_TOKEN ((cfg), (dest), MONO_PATCH_INFO_RVA, (image), (token), NULL, STACK_MP, NULL)
+
 #define NEW_LDSTRLITCONST(cfg,dest,val) NEW_AOTCONST ((cfg), (dest), MONO_PATCH_INFO_LDSTR_LIT, (val))
 
 #define NEW_TYPE_FROM_HANDLE_CONST(cfg,dest,image,token,generic_context) NEW_AOTCONST_TOKEN ((cfg), (dest), MONO_PATCH_INFO_TYPE_FROM_HANDLE, (image), (token), (generic_context), STACK_OBJ, mono_defaults.runtimetype_class)
@@ -335,7 +337,7 @@ alloc_dreg (MonoCompile *cfg, MonoStackType stack_type)
 
 #define NEW_VARLOAD(cfg,dest,var,vartype) do { \
 		MONO_INST_NEW ((cfg), (dest), OP_MOVE); \
-		(dest)->opcode = mono_type_to_regmove ((cfg), (vartype)); \
+		(dest)->opcode = GUINT_TO_OPCODE (mono_type_to_regmove ((cfg), (vartype))); \
 		mini_type_to_eval_stack_type ((cfg), (vartype), (dest)); \
 		(dest)->klass = var->klass; \
 		(dest)->sreg1 = var->dreg; \
@@ -375,7 +377,7 @@ handle_gsharedvt_ldaddr (MonoCompile *cfg)
 
 #define NEW_VARSTORE(cfg,dest,var,vartype,inst) do { \
 		MONO_INST_NEW ((cfg), (dest), OP_MOVE); \
-		(dest)->opcode = mono_type_to_regmove ((cfg), (vartype)); \
+		(dest)->opcode = GUINT_TO_OPCODE (mono_type_to_regmove ((cfg), (vartype))); \
 		(dest)->klass = (var)->klass; \
 		(dest)->sreg1 = (inst)->dreg; \
 		(dest)->dreg = (var)->dreg; \
@@ -903,9 +905,9 @@ static int ccount = 0;
 	} while (0)
 
 #define NEW_LOAD_MEMBASE_FLAGS(cfg,dest,op,dr,base,offset,ins_flags) do { \
-		int __ins_flags = ins_flags; \
+		guint8 __ins_flags = ins_flags; \
 		if (__ins_flags & MONO_INST_FAULT) { \
-			gboolean __out_of_page = offset > mono_target_pagesize (); \
+			gboolean __out_of_page = offset > GUINT_TO_INT(mono_target_pagesize ()); \
 			MONO_EMIT_NULL_CHECK ((cfg), (base), __out_of_page); \
 		} \
 		NEW_LOAD_MEMBASE ((cfg), (dest), (op), (dr), (base), (offset)); \
@@ -914,9 +916,9 @@ static int ccount = 0;
 
 #define MONO_EMIT_NEW_LOAD_MEMBASE_OP_FLAGS(cfg,op,dr,base,offset,ins_flags) do { \
 		MonoInst *__inst; \
-		int __ins_flags = ins_flags; \
+		guint8 __ins_flags = ins_flags; \
 		if (__ins_flags & MONO_INST_FAULT) { \
-			int __out_of_page = offset > mono_target_pagesize (); \
+			int __out_of_page = offset > GUINT_TO_INT(mono_target_pagesize ()); \
 			MONO_EMIT_NULL_CHECK ((cfg), (base), __out_of_page); \
 		} \
 		NEW_LOAD_MEMBASE ((cfg), (__inst), (op), (dr), (base), (offset)); \
@@ -969,9 +971,9 @@ mini_emit_bounds_check_offset (MonoCompile *cfg, int array_reg, int array_length
 		if (!(cfg->opt & MONO_OPT_ABCREM)) {
 			MONO_EMIT_NULL_CHECK (cfg, array_reg, FALSE);
 			if (COMPILE_LLVM (cfg))
-				MONO_EMIT_DEFAULT_BOUNDS_CHECK ((cfg), (array_reg), (array_length_offset), (index_reg), TRUE, ex_name);
+				MONO_EMIT_DEFAULT_BOUNDS_CHECK ((cfg), (array_reg), GINT_TO_UINT(array_length_offset), (index_reg), TRUE, ex_name);
 			else
-				MONO_ARCH_EMIT_BOUNDS_CHECK ((cfg), (array_reg), (array_length_offset), (index_reg), ex_name);
+				MONO_ARCH_EMIT_BOUNDS_CHECK ((cfg), (array_reg), GINT_TO_UINT(array_length_offset), (index_reg), ex_name);
 		} else {
 			MonoInst *ins;
 			MONO_INST_NEW ((cfg), ins, OP_BOUNDS_CHECK);

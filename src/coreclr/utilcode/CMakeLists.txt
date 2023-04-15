@@ -27,7 +27,6 @@ set(UTILCODE_COMMON_SOURCES
   comex.cpp
   guidfromname.cpp
   memorypool.cpp
-  iallocator.cpp
   loaderheap.cpp
   outstring.cpp
   ilformatter.cpp
@@ -40,7 +39,6 @@ set(UTILCODE_COMMON_SOURCES
   sigparser.cpp
   sstring.cpp
   util_nodependencies.cpp
-  utilmessagebox.cpp
   safewrap.cpp
   clrhost.cpp
   cycletimer.cpp
@@ -61,8 +59,6 @@ if(CLR_CMAKE_TARGET_WIN32)
   list(APPEND UTILCODE_COMMON_SOURCES
     dacutil.cpp
     dlwrap.cpp
-    securitywrapper.cpp
-    securityutil.cpp
     stacktrace.cpp
   )
 endif(CLR_CMAKE_TARGET_WIN32)
@@ -96,8 +92,8 @@ target_sources(utilcode INTERFACE $<TARGET_OBJECTS:utilcode_obj>)
 add_library_clr(utilcodestaticnohost STATIC ${UTILCODE_STATICNOHOST_SOURCES})
 
 if(CLR_CMAKE_HOST_UNIX)
-  target_link_libraries(utilcodestaticnohost  nativeresourcestring)
-  target_link_libraries(utilcode_dac nativeresourcestring)
+  target_link_libraries(utilcodestaticnohost PUBLIC nativeresourcestring)
+  target_link_libraries(utilcode_dac PUBLIC nativeresourcestring)
   target_link_libraries(utilcode INTERFACE nativeresourcestring)
   add_dependencies(utilcode_dac coreclrpal)
   add_dependencies(utilcode_obj coreclrpal)

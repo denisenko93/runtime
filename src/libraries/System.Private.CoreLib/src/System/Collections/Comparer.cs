@@ -7,6 +7,7 @@
 **
 ===========================================================*/
 
+using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.Serialization;
 
@@ -21,18 +22,26 @@ namespace System.Collections
         public static readonly Comparer Default = new Comparer(CultureInfo.CurrentCulture);
         public static readonly Comparer DefaultInvariant = new Comparer(CultureInfo.InvariantCulture);
 
-        public Comparer(CultureInfo culture!!)
+        public Comparer(CultureInfo culture)
         {
+            ArgumentNullException.ThrowIfNull(culture);
+
             _compareInfo = culture.CompareInfo;
         }
 
-        private Comparer(SerializationInfo info!!, StreamingContext context)
+        private Comparer(SerializationInfo info, StreamingContext context)
         {
+            ArgumentNullException.ThrowIfNull(info);
+
             _compareInfo = (CompareInfo)info.GetValue("CompareInfo", typeof(CompareInfo))!;
         }
 
-        public void GetObjectData(SerializationInfo info!!, StreamingContext context)
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
+            ArgumentNullException.ThrowIfNull(info);
+
             info.AddValue("CompareInfo", _compareInfo);
         }
 

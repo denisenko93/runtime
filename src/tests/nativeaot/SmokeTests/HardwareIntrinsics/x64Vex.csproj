@@ -6,15 +6,16 @@
     <CLRTestTargetUnsupported Condition="'$(TargetArchitecture)' != 'x64'">true</CLRTestTargetUnsupported>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <DefineConstants>$(DefineConstants);VEX_INTRINSICS</DefineConstants>
+    <StripSymbols>true</StripSymbols>
   </PropertyGroup>
 
   <ItemGroup>
-    <IlcArg Include="--instructionset:avx2" />
+    <IlcArg Include="--instruction-set:avx2" />
   </ItemGroup>
 
   <PropertyGroup>
-    <BashCLRTestPreCommands><![CDATA[
-$(BashCLRTestPreCommands)
+    <CLRTestBashPreCommands><![CDATA[
+$(CLRTestBashPreCommands)
     if [[ "$OSTYPE" == "darwin"* ]]; then
         sysctl -a
 
@@ -30,7 +31,7 @@ $(BashCLRTestPreCommands)
           exit 0
         fi
     fi
-]]></BashCLRTestPreCommands>
+]]></CLRTestBashPreCommands>
   </PropertyGroup>
 
   <ItemGroup>

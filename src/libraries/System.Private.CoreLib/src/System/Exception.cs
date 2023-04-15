@@ -2,7 +2,9 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 
 using System.Collections;
+using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.Runtime.Serialization;
 using System.Text;
 
@@ -37,8 +39,12 @@ namespace System
             _innerException = innerException;
         }
 
-        protected Exception(SerializationInfo info!!, StreamingContext context)
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        protected Exception(SerializationInfo info, StreamingContext context)
         {
+            ArgumentNullException.ThrowIfNull(info);
+
             _message = info.GetString("Message"); // Do not rename (binary serialization)
             _data = (IDictionary?)(info.GetValueNoThrow("Data", typeof(IDictionary))); // Do not rename (binary serialization)
             _innerException = (Exception?)(info.GetValue("InnerException", typeof(Exception))); // Do not rename (binary serialization)
@@ -86,12 +92,18 @@ namespace System
 
         public virtual string? Source
         {
-            get => _source ??= CreateSourceName();
+            [UnconditionalSuppressMessage("ReflectionAnalysis", "IL2026:RequiresUnreferencedCode",
+                Justification = "The API will return <unknown> if the metadata for current method cannot be established.")]
+            get => _source ??= HasBeenThrown ? (TargetSite?.Module.Assembly.GetName().Name ?? "<unknown>") : null;
             set => _source = value;
         }
 
-        public virtual void GetObjectData(SerializationInfo info!!, StreamingContext context)
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
         {
+            ArgumentNullException.ThrowIfNull(info);
+
             _source ??= Source; // Set the Source information correctly before serialization
 
             info.AddValue("ClassName", GetClassName(), typeof(string)); // Do not rename (binary serialization)

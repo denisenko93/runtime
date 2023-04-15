@@ -155,7 +155,8 @@ struct _MonoClassField {
 	 * field, it's the offset from the start of the object, if
 	 * it's static, it's from the start of the memory chunk
 	 * allocated for statics for the class.
-	 * For special static fields, this is set to -1 during vtable construction.
+	 * -1 means its a special static field.
+	 * -2 means its a collectible static field.
 	 */
 	int              offset;
 };
@@ -360,6 +361,7 @@ struct MonoVTable {
 	MonoDomain *domain;  /* each object/vtable belongs to exactly one domain */
 	gpointer    type; /* System.Type type for klass */
 	guint8     *interface_bitmap;
+	MonoGCHandle loader_alloc; /* LoaderAllocator object for objects in collectible alcs */
 	guint32     max_interface_id;
 	guint8      rank;
 	/* Keep this a guint8, the jit depends on it */
@@ -440,7 +442,6 @@ struct _MonoGenericClass {
 	MonoGenericContext context;	/* a context that contains the type instantiation doesn't contain any method instantiation */ /* FIXME: Only the class_inst member of "context" is ever used, so this field could be replaced with just a monogenericinst */
 	guint is_dynamic  : 1;		/* Contains dynamic types */
 	guint is_tb_open  : 1;		/* This is the fully open instantiation for a type_builder. Quite ugly, but it's temporary.*/
-	guint need_sync   : 1;      /* Only if dynamic. Need to be synchronized with its container class after its finished. */
 	MonoClass *cached_class;	/* if present, the MonoClass corresponding to the instantiation.  */
 
 	/* The mem manager which owns this generic class. */
@@ -529,7 +530,7 @@ mono_generic_param_owner (MonoGenericParam *p)
 	return p->owner;
 }
 
-static inline int
+static inline guint16
 mono_generic_param_num (MonoGenericParam *p)
 {
 	return p->num;
@@ -553,7 +554,7 @@ mono_type_get_generic_param_owner (MonoType *t)
 	return mono_generic_param_owner (t->data.generic_param);
 }
 
-static inline int
+static inline guint16
 mono_type_get_generic_param_num (MonoType *t)
 {
 	return mono_generic_param_num (t->data.generic_param);
@@ -753,9 +754,6 @@ mono_lookup_dynamic_token (MonoImage *image, guint32 token, MonoGenericContext *
 
 gpointer
 mono_lookup_dynamic_token_class (MonoImage *image, guint32 token, gboolean check_token, MonoClass **handle_class, MonoGenericContext *context, MonoError *error);
-
-gpointer
-mono_runtime_create_delegate_trampoline (MonoClass *klass);
 
 void
 mono_install_get_cached_class_info (MonoGetCachedClassInfo func);
@@ -1226,7 +1224,7 @@ mono_class_get_fields_lazy (MonoClass* klass, gpointer *iter);
 gboolean
 mono_class_check_vtable_constraints (MonoClass *klass, GList *in_setup);
 
-gboolean
+MONO_COMPONENT_API gboolean
 mono_class_has_finalizer (MonoClass *klass);
 
 void
@@ -1351,13 +1349,13 @@ MONO_COMPONENT_API
 void
 mono_class_set_nested_classes_property (MonoClass *klass, GList *value);
 
-MonoClassPropertyInfo*
+MONO_COMPONENT_API MonoClassPropertyInfo*
 mono_class_get_property_info (MonoClass *klass);
 
 void
 mono_class_set_property_info (MonoClass *klass, MonoClassPropertyInfo *info);
 
-MonoClassEventInfo*
+MONO_COMPONENT_API MonoClassEventInfo*
 mono_class_get_event_info (MonoClass *klass);
 
 void
@@ -1393,6 +1391,9 @@ mono_class_get_weak_bitmap (MonoClass *klass, int *nbits);
 gboolean
 mono_class_has_dim_conflicts (MonoClass *klass);
 
+gboolean
+mono_class_is_method_ambiguous (MonoClass *klass, MonoMethod *method);
+
 void
 mono_class_set_dim_conflicts (MonoClass *klass, GSList *conflicts);
 
@@ -1414,6 +1415,9 @@ mono_class_set_metadata_update_info (MonoClass *klass, MonoClassMetadataUpdateIn
 MONO_COMPONENT_API MonoMethod *
 mono_class_get_method_from_name_checked (MonoClass *klass, const char *name, int param_count, int flags, MonoError *error);
 
+void
+mono_class_set_is_simd_type (MonoClass *klass, gboolean is_simd);
+
 MONO_COMPONENT_API gboolean
 mono_method_has_no_body (MonoMethod *method);
 
@@ -1425,6 +1429,9 @@ mono_method_has_no_body (MonoMethod *method);
 // Internal callers expected to use ERROR_DECL. External callers are not.
 MONO_COMPONENT_API MonoMethodHeader*
 mono_method_get_header_internal (MonoMethod *method, MonoError *error);
+
+MONO_COMPONENT_API void
+mono_method_get_param_names_internal (MonoMethod *method, const char **names);
 
 MonoType*
 mono_class_find_enum_basetype (MonoClass *klass, MonoError *error);

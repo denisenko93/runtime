@@ -41,7 +41,7 @@ namespace ILCompiler.DependencyAnalysis
         public int Offset => 0;
         public override bool IsShareable => false;
 
-        public override ObjectNodeSection Section => _externalReferences.Section;
+        public override ObjectNodeSection GetSection(NodeFactory factory) => _externalReferences.GetSection(factory);
 
         public override bool StaticDependenciesAreComputed => true;
 
@@ -50,44 +50,77 @@ namespace ILCompiler.DependencyAnalysis
         public static void AddDependenciesDueToReflectability(ref DependencyList dependencies, NodeFactory factory, MethodDesc method)
         {
             Debug.Assert(factory.MetadataManager.IsReflectionInvokable(method));
+            Debug.Assert(method.GetCanonMethodTarget(CanonicalFormKind.Specific) == method);
 
-            if (dependencies == null)
-                dependencies = new DependencyList();
+            dependencies ??= new DependencyList();
 
             dependencies.Add(factory.MaximallyConstructableType(method.OwningType), "Reflection invoke");
 
             if (factory.MetadataManager.HasReflectionInvokeStubForInvokableMethod(method))
             {
-                MethodDesc canonInvokeStub = factory.MetadataManager.GetCanonicalReflectionInvokeStub(method);
-                if (canonInvokeStub.IsSharedByGenericInstantiations)
+                MethodDesc invokeStub = factory.MetadataManager.GetReflectionInvokeStub(method);
+                dependencies.Add(factory.MethodEntrypoint(invokeStub), "Reflection invoke");
+
+                var signature = method.Signature;
+                AddSignatureDependency(ref dependencies, factory, signature.ReturnType);
+                foreach (var parameterType in signature)
+                    AddSignatureDependency(ref dependencies, factory, parameterType);
+
+                static void AddSignatureDependency(ref DependencyList dependencies, NodeFactory factory, TypeDesc type)
                 {
-                    dependencies.Add(new DependencyListEntry(factory.DynamicInvokeTemplate(canonInvokeStub), "Reflection invoke"));
+                    if (type.IsByRef)
+                        type = ((ParameterizedType)type).ParameterType;
+
+                    // Pointer runtime type handles can be created at runtime if necessary
+                    while (type.IsPointer)
+                        type = ((ParameterizedType)type).ParameterType;
+
+                    // Skip tracking dependencies for primitive types. Assume that they are always present.
+                    if (type.IsPrimitive || type.IsVoid)
+                        return;
+
+                    // Function pointers are not supported yet.
+                    // https://github.com/dotnet/runtime/issues/71883
+                    static bool ContainsFunctionPointers(TypeDesc type)
+                    {
+                        if (type.IsParameterizedType)
+                            return ContainsFunctionPointers(((ParameterizedType)type).ParameterType);
+                        foreach (TypeDesc instArg in type.Instantiation)
+                            if (ContainsFunctionPointers(instArg))
+                                return true;
+                        return type.IsFunctionPointer;
+                    }
+                    if (ContainsFunctionPointers(type))
+                        return;
+
+                    TypeDesc canonType = type.ConvertToCanonForm(CanonicalFormKind.Specific);
+                    if (canonType.IsCanonicalSubtype(CanonicalFormKind.Any))
+                        GenericTypesTemplateMap.GetTemplateTypeDependencies(ref dependencies, factory, type.ConvertToCanonForm(CanonicalFormKind.Specific));
+                    else
+                        dependencies.Add(factory.MaximallyConstructableType(canonType), "Reflection invoke");
                 }
-                else
-                    dependencies.Add(new DependencyListEntry(factory.MethodEntrypoint(canonInvokeStub), "Reflection invoke"));
             }
 
             if (method.OwningType.IsValueType && !method.Signature.IsStatic)
-                dependencies.Add(new DependencyListEntry(factory.ExactCallableAddress(method, isUnboxingStub: true), "Reflection unboxing stub"));
+                dependencies.Add(factory.MethodEntrypoint(method, unboxingStub: true), "Reflection unboxing stub");
 
             // If the method is defined in a different module than this one, a metadata token isn't known for performing the reference
             // Use a name/sig reference instead.
             if (!factory.MetadataManager.WillUseMetadataTokenToReferenceMethod(method))
             {
-                dependencies.Add(new DependencyListEntry(factory.NativeLayout.PlacedSignatureVertex(factory.NativeLayout.MethodNameAndSignatureVertex(method.GetTypicalMethodDefinition())),
-                    "Non metadata-local method reference"));
+                dependencies.Add(factory.NativeLayout.PlacedSignatureVertex(factory.NativeLayout.MethodNameAndSignatureVertex(method.GetTypicalMethodDefinition())),
+                    "Non metadata-local method reference");
             }
 
             if (method.HasInstantiation)
             {
-                bool useUnboxingStub = method.OwningType.IsValueType && !method.Signature.IsStatic;
-
-                if (method.IsCanonicalMethod(CanonicalFormKind.Universal))
+                if (method.IsCanonicalMethod(CanonicalFormKind.Any))
                 {
-                    dependencies.Add(new DependencyListEntry(factory.NativeLayout.PlacedSignatureVertex(factory.NativeLayout.MethodNameAndSignatureVertex(method)),
-                        "UniversalCanon signature of method"));
+                    dependencies.Add(factory.NativeLayout.PlacedSignatureVertex(factory.NativeLayout.MethodNameAndSignatureVertex(method.GetTypicalMethodDefinition())),
+                        "Signature of canonical method");
                 }
-                else if (!method.GetCanonMethodTarget(CanonicalFormKind.Specific).RequiresInstArg() || method.IsAbstract)
+
+                if (!method.IsCanonicalMethod(CanonicalFormKind.Universal))
                 {
                     foreach (var instArg in method.Instantiation)
                     {
@@ -119,17 +152,17 @@ namespace ILCompiler.DependencyAnalysis
             {
                 MethodDesc method = mappingEntry.Entity;
 
+                Debug.Assert(method == method.GetCanonMethodTarget(CanonicalFormKind.Specific));
+
                 if (!factory.MetadataManager.ShouldMethodBeInInvokeMap(method))
                     continue;
-
-                bool useUnboxingStub = method.OwningType.IsValueType && !method.Signature.IsStatic;
 
                 InvokeTableFlags flags = 0;
 
                 if (method.HasInstantiation)
                     flags |= InvokeTableFlags.IsGenericMethod;
 
-                if (method.GetCanonMethodTarget(CanonicalFormKind.Specific).RequiresInstArg())
+                if (method.RequiresInstArg())
                 {
                     bool goesThroughInstantiatingUnboxingThunk = method.OwningType.IsValueType && !method.Signature.IsStatic && !method.HasInstantiation;
                     if (!goesThroughInstantiatingUnboxingThunk)
@@ -184,32 +217,26 @@ namespace ILCompiler.DependencyAnalysis
                 {
                     vertex = writer.GetTuple(vertex,
                         writer.GetUnsignedConstant(_externalReferences.GetIndex(
-                            factory.MethodEntrypoint(method.GetCanonMethodTarget(CanonicalFormKind.Specific), useUnboxingStub))));
+                            factory.MethodEntrypoint(method,
+                            unboxingStub: method.OwningType.IsValueType && !method.Signature.IsStatic))));
                 }
 
                 if ((flags & InvokeTableFlags.NeedsParameterInterpretation) == 0)
                 {
-                    MethodDesc canonInvokeStubMethod = factory.MetadataManager.GetCanonicalReflectionInvokeStub(method);
-                    if (canonInvokeStubMethod.IsSharedByGenericInstantiations)
-                    {
-                        vertex = writer.GetTuple(vertex,
-                            writer.GetUnsignedConstant(((uint)factory.MetadataManager.DynamicInvokeTemplateData.GetIdForMethod(canonInvokeStubMethod, factory) << 1) | 1));
-                    }
-                    else
-                    {
-                        vertex = writer.GetTuple(vertex,
-                            writer.GetUnsignedConstant(_externalReferences.GetIndex(factory.MethodEntrypoint(canonInvokeStubMethod)) << 1));
-                    }
+                    MethodDesc invokeStub = factory.MetadataManager.GetReflectionInvokeStub(method);
+                    vertex = writer.GetTuple(vertex,
+                        writer.GetUnsignedConstant(_externalReferences.GetIndex(factory.MethodEntrypoint(invokeStub))));
                 }
 
                 if ((flags & InvokeTableFlags.IsGenericMethod) != 0)
                 {
-                    if ((flags & InvokeTableFlags.IsUniversalCanonicalEntry) != 0)
+                    if ((flags & InvokeTableFlags.RequiresInstArg) != 0)
                     {
-                        var nameAndSigGenericMethod = factory.NativeLayout.PlacedSignatureVertex(factory.NativeLayout.MethodNameAndSignatureVertex(method));
+                        var nameAndSigGenericMethod = factory.NativeLayout.PlacedSignatureVertex(factory.NativeLayout.MethodNameAndSignatureVertex(method.GetTypicalMethodDefinition()));
                         vertex = writer.GetTuple(vertex, writer.GetUnsignedConstant((uint)nameAndSigGenericMethod.SavedVertex.VertexOffset));
                     }
-                    else if ((flags & InvokeTableFlags.RequiresInstArg) == 0 || (flags & InvokeTableFlags.HasEntrypoint) == 0)
+
+                    if ((flags & InvokeTableFlags.IsUniversalCanonicalEntry) == 0)
                     {
                         VertexSequence args = new VertexSequence();
                         for (int i = 0; i < method.Instantiation.Length; i++)
@@ -219,14 +246,9 @@ namespace ILCompiler.DependencyAnalysis
                         }
                         vertex = writer.GetTuple(vertex, args);
                     }
-                    else
-                    {
-                        uint dictionaryId = _externalReferences.GetIndex(factory.MethodGenericDictionary(method));
-                        vertex = writer.GetTuple(vertex, writer.GetUnsignedConstant(dictionaryId));
-                    }
                 }
 
-                int hashCode = method.GetCanonMethodTarget(CanonicalFormKind.Specific).OwningType.GetHashCode();
+                int hashCode = method.OwningType.GetHashCode();
                 typeMapHashTable.Append((uint)hashCode, hashTableSection.Place(vertex));
             }
 

@@ -96,7 +96,7 @@ namespace System.Reflection.Emit
         {
             if (position > 0)
             {
-                TypeBuilder.SetConstantValue(methodb.GetParameterType(position - 1),
+                RuntimeTypeBuilder.SetConstantValue(methodb.GetParameterType(position - 1),
                                   defaultValue, ref defaultValue);
             }
 
@@ -152,7 +152,6 @@ namespace System.Reflection.Emit
             }
         }
 
-        [ComVisible(true)]
         public void SetCustomAttribute(ConstructorInfo con, byte[] binaryAttribute)
         {
             SetCustomAttribute(new CustomAttributeBuilder(con, binaryAttribute));

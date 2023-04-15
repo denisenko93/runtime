@@ -34,7 +34,6 @@
 #include <mono/metadata/mono-debug.h>
 #include <mono/utils/mono-uri.h>
 #include <mono/metadata/mono-config.h>
-#include <mono/metadata/mono-config-internals.h>
 #include <mono/utils/mono-digest.h>
 #include <mono/utils/mono-logger-internals.h>
 #include <mono/utils/mono-path.h>
@@ -136,30 +135,30 @@ mono_public_tokens_are_equal (const unsigned char *pubt1, const unsigned char *p
 void
 mono_set_assemblies_path (const char* path)
 {
-	char **splitted, **dest;
+	char **split, **dest;
 
-	splitted = g_strsplit (path, G_SEARCHPATH_SEPARATOR_S, 1000);
+	split = g_strsplit (path, G_SEARCHPATH_SEPARATOR_S, 1000);
 	if (assemblies_path)
 		g_strfreev (assemblies_path);
-	assemblies_path = dest = splitted;
-	while (*splitted) {
-		char *tmp = *splitted;
+	assemblies_path = dest = split;
+	while (*split) {
+		char *tmp = *split;
 		if (*tmp)
 			*dest++ = mono_path_canonicalize (tmp);
 		g_free (tmp);
-		splitted++;
+		split++;
 	}
-	*dest = *splitted;
+	*dest = *split;
 
 	if (g_hasenv ("MONO_DEBUG"))
 		return;
 
-	splitted = assemblies_path;
-	while (*splitted) {
-		if (**splitted && !g_file_test (*splitted, G_FILE_TEST_IS_DIR))
-			g_warning ("'%s' in MONO_PATH doesn't exist or has wrong permissions.", *splitted);
+	split = assemblies_path;
+	while (*split) {
+		if (**split && !g_file_test (*split, G_FILE_TEST_IS_DIR))
+			g_warning ("'%s' in MONO_PATH doesn't exist or has wrong permissions.", *split);
 
-		splitted++;
+		split++;
 	}
 }
 
@@ -268,7 +267,7 @@ mono_assembly_names_equal_flags (MonoAssemblyName *l, MonoAssemblyName *r, MonoA
  * if \p r is a lower version than \p l, or zero if \p l and \p r are equal
  * versions (comparing upto \p maxcomps components).
  *
- * Components are \c major, \c minor, \c revision, and \c build. \p maxcomps 1 means just compare
+ * Components are \c major, \c minor, \c build, and \c revision. \p maxcomps 1 means just compare
  * majors. 2 means majors then minors. etc.
  */
 static int
@@ -284,9 +283,9 @@ assembly_names_compare_versions (MonoAssemblyName *l, MonoAssemblyName *r, int m
 	++i;
 	CMP (minor);
 	++i;
-	CMP (revision);
-	++i;
 	CMP (build);
+	++i;
+	CMP (revision);
 #undef CMP
 	return 0;
 }
@@ -641,7 +640,7 @@ mono_assembly_remap_version (MonoAssemblyName *aname, MonoAssemblyName *dest_ana
 	if (aname->name == NULL || !(aname->flags & ASSEMBLYREF_RETARGETABLE_FLAG))
 		return aname;
 
-	// Retargeting was mainly done on .NET Framework or Portable Class Libraries, remap to version 4.0.0.0 
+	// Retargeting was mainly done on .NET Framework or Portable Class Libraries, remap to version 4.0.0.0
 	// so the .NET Framework compatibility facades like mscorlib.dll can kick in
 	memcpy (dest_aname, aname, sizeof(MonoAssemblyName));
 	dest_aname->major = 4;
@@ -721,6 +720,7 @@ search_bundle_for_assembly (MonoAssemblyLoadContext *alc, MonoAssemblyName *anam
 	if (!image && !g_str_has_suffix (aname->name, ".dll")) {
 		char *name = g_strdup_printf ("%s.dll", aname->name);
 		image = mono_assembly_open_from_bundle (alc, name, &status, aname->culture);
+		g_free (name);
 	}
 	if (image) {
 		mono_assembly_request_prepare_load (&req, alc);
@@ -857,7 +857,7 @@ netcore_load_reference (MonoAssemblyName *aname, MonoAssemblyLoadContext *alc, M
 	}
 
 	// Looking up corlib resources here can cause an infinite loop
-	// See: https://github.com/dotnet/coreclr/blob/0a762eb2f3a299489c459da1ddeb69e042008f07/src/vm/appdomain.cpp#L5178-L5239
+	// See: https://github.com/dotnet/runtime/blob/753d12facef5aa9d7926e3e284bfb40b7197f016/src/coreclr/vm/appdomain.cpp#L3518-L3572
 	if (!(strcmp (aname->name, MONO_ASSEMBLY_CORLIB_RESOURCE_NAME) == 0 && is_satellite) && postload) {
 		reference = mono_assembly_invoke_search_hook_internal (alc, requesting, aname, TRUE);
 		if (reference) {
@@ -969,23 +969,20 @@ mono_assembly_load_reference (MonoImage *image, int index)
 		goto commit_reference;
 	}
 
-	if (image->assembly) {
-		if (mono_trace_is_traced (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY)) {
-			char *aname_str = mono_stringify_assembly_name (&aname);
-			mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Loading reference %d of %s (%s), looking for %s",
-				    index, image->name, mono_alc_is_default (mono_image_get_alc (image)) ? "default ALC" : "custom ALC" ,
-				    aname_str);
-			g_free (aname_str);
-		}
-
-		MonoAssemblyByNameRequest req;
-		mono_assembly_request_prepare_byname (&req, mono_image_get_alc (image));
-		req.requesting_assembly = image->assembly;
-		//req.no_postload_search = TRUE; // FIXME: should this be set?
-		reference = mono_assembly_request_byname (&aname, &req, NULL);
-	} else {
-		g_assertf (image->assembly, "While loading reference %d MonoImage %s doesn't have a MonoAssembly", index, image->name);
+	g_assertf (image->assembly || image->not_executable, "While loading reference %d, executable MonoImage %s doesn't have a MonoAssembly", index, image->name);
+	if (mono_trace_is_traced (G_LOG_LEVEL_INFO, MONO_TRACE_ASSEMBLY)) {
+		char *aname_str = mono_stringify_assembly_name (&aname);
+		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Loading reference %d of %s (%s), looking for %s",
+				index, image->name, mono_alc_is_default (mono_image_get_alc (image)) ? "default ALC" : "custom ALC" ,
+				aname_str);
+		g_free (aname_str);
 	}
+
+	MonoAssemblyByNameRequest req;
+	mono_assembly_request_prepare_byname (&req, mono_image_get_alc (image));
+	req.requesting_assembly = image->assembly;
+	//req.no_postload_search = TRUE; // FIXME: should this be set?
+	reference = mono_assembly_request_byname (&aname, &req, NULL);
 
 	if (reference == NULL){
 		char *extra_msg;
@@ -999,6 +996,7 @@ mono_assembly_load_reference (MonoImage *image, int index)
 		} else if (status == MONO_IMAGE_IMAGE_INVALID) {
 			extra_msg = g_strdup ("The file exists but is not a valid assembly.\n");
 		} else {
+			g_assert (status != MONO_IMAGE_NOT_SUPPORTED); // runtime should not use unsupported APIs
 			extra_msg = g_strdup ("");
 		}
 
@@ -1452,6 +1450,25 @@ absolute_dir (const gchar *filename)
 	return res;
 }
 
+static gboolean
+bundled_assembly_match (const char *bundled_name, const char *name)
+{
+#ifndef ENABLE_WEBCIL
+	return strcmp (bundled_name, name) == 0;
+#else
+	if (strcmp (bundled_name, name) == 0)
+		return TRUE;
+	/* if they want a .dll and we have the matching .webcil, return it */
+	if (g_str_has_suffix (bundled_name, ".webcil") && g_str_has_suffix (name, ".dll")) {
+		size_t bprefix = strlen (bundled_name) - strlen (".webcil");
+		size_t nprefix = strlen (name) - strlen (".dll");
+		if (bprefix == nprefix && strncmp (bundled_name, name, bprefix) == 0)
+			return TRUE;
+	}
+	return FALSE;
+#endif
+}
+
 static MonoImage *
 open_from_bundle_internal (MonoAssemblyLoadContext *alc, const char *filename, MonoImageOpenStatus *status, gboolean is_satellite)
 {
@@ -1461,7 +1478,7 @@ open_from_bundle_internal (MonoAssemblyLoadContext *alc, const char *filename, M
 	MonoImage *image = NULL;
 	char *name = is_satellite ? g_strdup (filename) : g_path_get_basename (filename);
 	for (int i = 0; !image && bundles [i]; ++i) {
-		if (strcmp (bundles [i]->name, name) == 0) {
+		if (bundled_assembly_match (bundles[i]->name, name)) {
 			// Since bundled images don't exist on disk, don't give them a legit filename
 			image = mono_image_open_from_data_internal (alc, (char*)bundles [i]->data, bundles [i]->size, FALSE, status, FALSE, name, NULL);
 			break;
@@ -1482,7 +1499,7 @@ open_from_satellite_bundle (MonoAssemblyLoadContext *alc, const char *filename, 
 	char *name = g_strdup (filename);
 
 	for (int i = 0; !image && satellite_bundles [i]; ++i) {
-		if (strcmp (satellite_bundles [i]->name, name) == 0 && strcmp (satellite_bundles [i]->culture, culture) == 0) {
+		if (bundled_assembly_match (satellite_bundles[i]->name, name) && strcmp (satellite_bundles [i]->culture, culture) == 0) {
 			char *bundle_name = g_strconcat (culture, "/", name, (const char *)NULL);
 			image = mono_image_open_from_data_internal (alc, (char *)satellite_bundles [i]->data, satellite_bundles [i]->size, FALSE, status, FALSE, bundle_name, NULL);
 			g_free (bundle_name);
@@ -1511,6 +1528,7 @@ mono_assembly_open_from_bundle (MonoAssemblyLoadContext *alc, const char *filena
 	 * purpose assembly loading mechanism.
 	 */
 	MonoImage *image = NULL;
+	MONO_ENTER_GC_UNSAFE;
 	gboolean is_satellite = culture && culture [0] != 0;
 
 	if (is_satellite)
@@ -1522,6 +1540,7 @@ mono_assembly_open_from_bundle (MonoAssemblyLoadContext *alc, const char *filena
 		mono_image_addref (image);
 		mono_trace (G_LOG_LEVEL_DEBUG, MONO_TRACE_ASSEMBLY, "Assembly Loader loaded assembly from bundle: '%s'.", filename);
 	}
+	MONO_EXIT_GC_UNSAFE;
 	return image;
 }
 
@@ -1552,7 +1571,7 @@ mono_assembly_open_full (const char *filename, MonoImageOpenStatus *status, gboo
 {
 	if (refonly) {
 		if (status)
-			*status = MONO_IMAGE_IMAGE_INVALID;
+			*status = MONO_IMAGE_NOT_SUPPORTED;
 		return NULL;
 	}
 	MonoAssembly *res;
@@ -1599,8 +1618,10 @@ mono_assembly_request_open (const char *filename, const MonoAssemblyOpenRequest 
 		loaded_from_bundle = image != NULL;
 	}
 
-	if (!image)
-		image = mono_image_open_a_lot (load_req.alc, fname, status);
+	if (!image) {
+		MonoImageOpenOptions options = {0, };
+		image = mono_image_open_a_lot (load_req.alc, fname, status, &options);
+	}
 
 	if (!image){
 		if (*status == MONO_IMAGE_OK)
@@ -1764,7 +1785,7 @@ struct HasReferenceAssemblyAttributeIterData {
 };
 
 static gboolean
-has_reference_assembly_attribute_iterator (MonoImage *image, guint32 typeref_scope_token, const char *nspace, const char *name, guint32 method_token, gpointer user_data)
+has_reference_assembly_attribute_iterator (MonoImage *image, guint32 typeref_scope_token, const char *nspace, const char *name, guint32 method_token, guint32 *cols, gpointer user_data)
 {
 	gboolean stop_scanning = FALSE;
 	struct HasReferenceAssemblyAttributeIterData *iter_data = (struct HasReferenceAssemblyAttributeIterData*)user_data;
@@ -1863,7 +1884,7 @@ mono_assembly_load_from_full (MonoImage *image, const char*fname,
 {
 	if (refonly) {
 		if (status)
-			*status = MONO_IMAGE_IMAGE_INVALID;
+			*status = MONO_IMAGE_NOT_SUPPORTED;
 		return NULL;
 	}
 	MonoAssembly *res;
@@ -1920,7 +1941,7 @@ mono_assembly_request_load_from (MonoImage *image, const char *fname,
 	 */
 	ass = g_new0 (MonoAssembly, 1);
 	ass->basedir = base_dir;
-	ass->context.no_managed_load_event = req->no_managed_load_event;
+	ass->context.no_managed_load_event = !!req->no_managed_load_event;
 	ass->image = image;
 
 	MONO_PROFILER_RAISE (assembly_loading, (ass));
@@ -2023,6 +2044,8 @@ mono_assembly_request_load_from (MonoImage *image, const char *fname,
 		mono_image_fixup_vtable (image);
 #endif
 
+	*status = MONO_IMAGE_OK;
+
 	mono_assembly_invoke_load_hook_internal (req->alc, ass);
 
 	MONO_PROFILER_RAISE (assembly_loaded, (ass));
@@ -2109,14 +2132,14 @@ parse_public_key (const gchar *key, gchar** pubkey, gboolean *is_ecma)
 		return TRUE;
 	}
 	*is_ecma = FALSE;
-	val = g_ascii_xdigit_value (key [0]) << 4;
-	val |= g_ascii_xdigit_value (key [1]);
+	val = GINT_TO_CHAR (g_ascii_xdigit_value (key [0]) << 4);
+	val |= GINT_TO_CHAR (g_ascii_xdigit_value (key [1]));
 	switch (val) {
 		case 0x00:
 			if (keylen < 13)
 				return FALSE;
-			val = g_ascii_xdigit_value (key [24]);
-			val |= g_ascii_xdigit_value (key [25]);
+			val = GINT_TO_CHAR (g_ascii_xdigit_value (key [24]));
+			val |= GINT_TO_CHAR (g_ascii_xdigit_value (key [25]));
 			if (val != 0x06)
 				return FALSE;
 			pkey = key + 24;
@@ -2135,8 +2158,8 @@ parse_public_key (const gchar *key, gchar** pubkey, gboolean *is_ecma)
 		return FALSE;
 
 	for (i = 0, j = 0; i < 16; i++) {
-		header [i] = g_ascii_xdigit_value (pkey [j++]) << 4;
-		header [i] |= g_ascii_xdigit_value (pkey [j++]);
+		header [i] = GINT_TO_CHAR (g_ascii_xdigit_value (pkey [j++]) << 4);
+		header [i] |= GINT_TO_CHAR (g_ascii_xdigit_value (pkey [j++]));
 	}
 
 	if (header [0] != 0x06 || /* PUBLICKEYBLOB (0x06) */
@@ -2157,8 +2180,8 @@ parse_public_key (const gchar *key, gchar** pubkey, gboolean *is_ecma)
 	offset = (gint)(endp-arr);
 
 	for (i = offset, j = 0; i < keylen + offset; i++) {
-		arr [i] = g_ascii_xdigit_value (key [j++]) << 4;
-		arr [i] |= g_ascii_xdigit_value (key [j++]);
+		arr [i] = GINT_TO_CHAR (g_ascii_xdigit_value (key [j++]) << 4);
+		arr [i] |= GINT_TO_CHAR (g_ascii_xdigit_value (key [j++]));
 	}
 
 	*pubkey = arr;
@@ -2285,7 +2308,7 @@ split_key_value (const gchar *pair, gchar **key, guint32 *keylen, gchar **value)
 	}
 
 	*key = (gchar*)pair;
-	*keylen = eqsign - *key;
+	*keylen = GPTRDIFF_TO_UINT32 (eqsign - *key);
 	while (*keylen > 0 && g_ascii_isspace ((*key) [*keylen - 1]))
 		(*keylen)--;
 	*value = g_strstrip (eqsign + 1);
@@ -2586,12 +2609,12 @@ uint16_t
 mono_assembly_name_get_version (MonoAssemblyName *aname, uint16_t *minor, uint16_t *build, uint16_t *revision)
 {
 	if (minor)
-		*minor = aname->minor;
+		*minor = GINT32_TO_UINT16 (aname->minor);
 	if (build)
-		*build = aname->build;
+		*build = GINT32_TO_UINT16 (aname->build);
 	if (revision)
-		*revision = aname->revision;
-	return aname->major;
+		*revision = GINT32_TO_UINT16 (aname->revision);
+	return GINT32_TO_UINT16 (aname->major);
 }
 
 gboolean
@@ -2678,7 +2701,7 @@ mono_assembly_load_with_partial_name_internal (const char *name, MonoAssemblyLoa
 }
 
 MonoAssembly*
-mono_assembly_load_corlib ()
+mono_assembly_load_corlib (void)
 {
 	MonoAssemblyName *aname;
 	MonoAssemblyOpenRequest req;
@@ -2707,6 +2730,14 @@ mono_assembly_load_corlib ()
 		corlib = mono_assembly_request_open (corlib_name, &req, &status);
 		g_free (corlib_name);
 	}
+#ifdef ENABLE_WEBCIL
+	if (!corlib) {
+		/* Maybe its in a bundle */
+		char *corlib_name = g_strdup_printf ("%s.webcil", MONO_ASSEMBLY_CORLIB_NAME);
+		corlib = mono_assembly_request_open (corlib_name, &req, &status);
+		g_free (corlib_name);
+	}
+#endif
 	g_assert (corlib);
 
 	// exit the process if we weren't able to load corlib
@@ -2723,6 +2754,7 @@ mono_assembly_load_corlib ()
 			g_print ("Missing assembly reference in " MONO_ASSEMBLY_CORLIB_NAME ".dll\n");
 			break;
 		default:
+			g_assert (status != MONO_IMAGE_NOT_SUPPORTED); // runtime should not be using unsupported APIs
 			g_assertf(0, "Unexpected status %d while loading " MONO_ASSEMBLY_CORLIB_NAME ".dll", status);
 			break;
 		}
@@ -2815,7 +2847,7 @@ mono_assembly_load_full (MonoAssemblyName *aname, const char *basedir, MonoImage
 {
 	if (refonly) {
 		if (status)
-			*status = MONO_IMAGE_IMAGE_INVALID;
+			*status = MONO_IMAGE_NOT_SUPPORTED;
 		return NULL;
 	}
 	MonoAssembly *res;
@@ -2844,11 +2876,15 @@ mono_assembly_load_full (MonoAssemblyName *aname, const char *basedir, MonoImage
 MonoAssembly*
 mono_assembly_load (MonoAssemblyName *aname, const char *basedir, MonoImageOpenStatus *status)
 {
+	MonoAssembly *result = NULL;
+	MONO_ENTER_GC_UNSAFE;
 	MonoAssemblyByNameRequest req;
 	mono_assembly_request_prepare_byname (&req, mono_alc_get_default ());
 	req.requesting_assembly = NULL;
 	req.basedir = basedir;
-	return mono_assembly_request_byname (aname, &req, status);
+	result = mono_assembly_request_byname (aname, &req, status);
+	MONO_EXIT_GC_UNSAFE;
+	return result;
 }
 
 /**
@@ -2908,9 +2944,8 @@ mono_assembly_release_gc_roots (MonoAssembly *assembly)
 		return;
 
 	if (assembly_is_dynamic (assembly)) {
-		int i;
 		MonoDynamicImage *dynimg = (MonoDynamicImage *)assembly->image;
-		for (i = 0; i < dynimg->image.module_count; ++i)
+		for (guint32 i = 0; i < dynimg->image.module_count; ++i)
 			mono_dynamic_image_release_gc_roots ((MonoDynamicImage *)dynimg->image.modules [i]);
 		mono_dynamic_image_release_gc_roots (dynimg);
 	}
@@ -3219,7 +3254,7 @@ mono_assembly_is_jit_optimizer_disabled (MonoAssembly *ass)
 		mono_custom_attrs_free (attrs);
 	}
 
-	ass->jit_optimizer_disabled = disable_opts;
+	ass->jit_optimizer_disabled = !!disable_opts;
 	mono_memory_barrier ();
 	ass->jit_optimizer_disabled_inited = TRUE;
 

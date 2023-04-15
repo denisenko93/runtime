@@ -15,7 +15,9 @@ namespace System.Runtime
         private static unsafe IntPtr RhpCidResolve(IntPtr callerTransitionBlockParam, IntPtr pCell)
         {
             IntPtr locationOfThisPointer = callerTransitionBlockParam + TransitionBlock.GetThisOffset();
-            object pObject = Unsafe.As<IntPtr, object>(ref *(IntPtr*)locationOfThisPointer);
+#pragma warning disable 8500 // address of managed types
+            object pObject = *(object*)locationOfThisPointer;
+#pragma warning restore 8500
             IntPtr dispatchResolveTarget = RhpCidResolve_Worker(pObject, pCell);
             return dispatchResolveTarget;
         }
@@ -51,7 +53,7 @@ namespace System.Runtime
         {
             if (pObject == null)
             {
-                // ProjectN Optimizer may perform code motion on dispatch such that it occurs independant of
+                // Optimizer may perform code motion on dispatch such that it occurs independant of
                 // null check on "this" pointer. Allow for this case by returning back an invalid pointer.
                 return IntPtr.Zero;
             }
@@ -82,7 +84,7 @@ namespace System.Runtime
         }
 
         [RuntimeExport("RhResolveDispatchOnType")]
-        private static IntPtr RhResolveDispatchOnType(EETypePtr instanceType, EETypePtr interfaceType, ushort slot)
+        private static IntPtr RhResolveDispatchOnType(EETypePtr instanceType, EETypePtr interfaceType, ushort slot, EETypePtr* pGenericContext)
         {
             // Type of object we're dispatching on.
             MethodTable* pInstanceType = instanceType.ToPointer();
@@ -92,7 +94,8 @@ namespace System.Runtime
 
             return DispatchResolve.FindInterfaceMethodImplementationTarget(pInstanceType,
                                                                           pInterfaceType,
-                                                                          slot);
+                                                                          slot,
+                                                                          (MethodTable**)pGenericContext);
         }
 
         private static unsafe IntPtr RhResolveDispatchWorker(object pObject, void* cell, ref DispatchCellInfo cellInfo)
@@ -108,7 +111,8 @@ namespace System.Runtime
 
                 IntPtr pTargetCode = DispatchResolve.FindInterfaceMethodImplementationTarget(pResolvingInstanceType,
                                                                               cellInfo.InterfaceType.ToPointer(),
-                                                                              cellInfo.InterfaceSlot);
+                                                                              cellInfo.InterfaceSlot,
+                                                                              ppGenericContext: null);
                 if (pTargetCode == IntPtr.Zero && pInstanceType->IsIDynamicInterfaceCastable)
                 {
                     // Dispatch not resolved through normal dispatch map, try using the IDynamicInterfaceCastable

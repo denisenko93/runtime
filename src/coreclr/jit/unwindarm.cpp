@@ -563,16 +563,37 @@ void Compiler::unwindReserve()
 void Compiler::unwindReserveFunc(FuncInfoDsc* func)
 {
     BOOL isFunclet          = (func->funKind == FUNC_ROOT) ? FALSE : TRUE;
-    bool funcHasColdSection = false;
+    bool funcHasColdSection = (fgFirstColdBlock != nullptr);
+
+#ifdef DEBUG
+    if (JitConfig.JitFakeProcedureSplitting() && funcHasColdSection)
+    {
+        funcHasColdSection = false; // "Trick" the VM into thinking we don't have a cold section.
+    }
+#endif // DEBUG
+
+#ifdef FEATURE_EH_FUNCLETS
+    // If hot/cold splitting occurred at fgFirstFuncletBB, then the main body is not split.
+    const bool splitAtFirstFunclet = (funcHasColdSection && (fgFirstColdBlock == fgFirstFuncletBB));
+
+    if (!isFunclet && splitAtFirstFunclet)
+    {
+        funcHasColdSection = false;
+    }
+#endif // FEATURE_EH_FUNCLETS
 
 #if defined(FEATURE_CFI_SUPPORT)
     if (generateCFIUnwindCodes())
     {
+        // Report zero-sized unwind info for cold part of main function
+        // so the EE chains unwind info.
+        // TODO: Support cold EH funclets.
         DWORD unwindCodeBytes = 0;
-        if (fgFirstColdBlock != nullptr)
+        if (funcHasColdSection)
         {
             eeReserveUnwindInfo(isFunclet, true /*isColdCode*/, unwindCodeBytes);
         }
+
         unwindCodeBytes = (DWORD)(func->cfiCodes->size() * sizeof(CFI_CODE));
         eeReserveUnwindInfo(isFunclet, false /*isColdCode*/, unwindCodeBytes);
 
@@ -584,10 +605,8 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
     // cold section. This needs to be done before we split into fragments, as each
     // of the hot and cold sections can have multiple fragments.
 
-    if (fgFirstColdBlock != NULL)
+    if (funcHasColdSection)
     {
-        assert(!isFunclet); // TODO-CQ: support hot/cold splitting with EH
-
         emitLocation* startLoc;
         emitLocation* endLoc;
         unwindGetFuncLocations(func, false, &startLoc, &endLoc);
@@ -595,8 +614,6 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
         func->uwiCold = new (this, CMK_UnwindInfo) UnwindInfo();
         func->uwiCold->InitUnwindInfo(this, startLoc, endLoc);
         func->uwiCold->HotColdSplitCodes(&func->uwi);
-
-        funcHasColdSection = true;
     }
 
     // First we need to split the function or funclet into fragments that are no larger
@@ -604,7 +621,11 @@ void Compiler::unwindReserveFunc(FuncInfoDsc* func)
     // The ARM Exception Data specification "Function Fragments" section describes this.
     func->uwi.Split();
 
-    func->uwi.Reserve(isFunclet, true);
+    // If the function is split, EH funclets are always cold; skip this call for cold funclets.
+    if (!isFunclet || !funcHasColdSection)
+    {
+        func->uwi.Reserve(isFunclet, true);
+    }
 
     // After the hot section, split and reserve the cold section
 
@@ -641,12 +662,17 @@ void Compiler::unwindEmitFunc(FuncInfoDsc* func, void* pHotCode, void* pColdCode
 #if defined(FEATURE_CFI_SUPPORT)
     if (generateCFIUnwindCodes())
     {
+        // TODO: Support cold EH funclets.
         unwindEmitFuncCFI(func, pHotCode, pColdCode);
         return;
     }
 #endif // FEATURE_CFI_SUPPORT
 
-    func->uwi.Allocate((CorJitFuncKind)func->funKind, pHotCode, pColdCode, true);
+    // If the function is split, EH funclets are always cold; skip this call for cold funclets.
+    if ((func->funKind == FUNC_ROOT) || (func->uwiCold == NULL))
+    {
+        func->uwi.Allocate((CorJitFuncKind)func->funKind, pHotCode, pColdCode, true);
+    }
 
     if (func->uwiCold != NULL)
     {
@@ -1569,8 +1595,6 @@ void UnwindFragmentInfo::Finalize(UNATIVE_OFFSET functionLength)
 
 void UnwindFragmentInfo::Reserve(bool isFunclet, bool isHotCode)
 {
-    assert(isHotCode || !isFunclet); // TODO-CQ: support hot/cold splitting in functions with EH
-
     MergeCodes();
 
     bool isColdCode = !isHotCode;
@@ -1603,12 +1627,6 @@ void UnwindFragmentInfo::Allocate(
     UNATIVE_OFFSET startOffset;
     UNATIVE_OFFSET endOffset;
     UNATIVE_OFFSET codeSize;
-
-    // We don't support hot/cold splitting with EH, so if there is cold code, this
-    // better not be a funclet!
-    // TODO-CQ: support funclets in cold code
-
-    noway_assert(isHotCode || funKind == CORJIT_FUNC_ROOT);
 
     // Compute the final size, and start and end offsets of the fragment
 
@@ -1656,7 +1674,17 @@ void UnwindFragmentInfo::Allocate(
 
     if (isHotCode)
     {
-        assert(endOffset <= uwiComp->info.compTotalHotCodeSize);
+#ifdef DEBUG
+        if (JitConfig.JitFakeProcedureSplitting() && (pColdCode != NULL))
+        {
+            assert(endOffset <= uwiComp->info.compNativeCodeSize);
+        }
+        else
+#endif // DEBUG
+        {
+            assert(endOffset <= uwiComp->info.compTotalHotCodeSize);
+        }
+
         pColdCode = NULL;
     }
     else
@@ -1779,7 +1807,7 @@ void UnwindInfo::HotColdSplitCodes(UnwindInfo* puwi)
 // so the fragment size will fit in the unwind data "Function Length" field.
 // The ARM Exception Data specification "Function Fragments" section describes this.
 // We split the function so that it is no larger than 512K bytes, or the value of
-// the COMPlus_JitSplitFunctionSize value, if defined (and smaller). We must determine
+// the DOTNET_JitSplitFunctionSize value, if defined (and smaller). We must determine
 // how to split the function/funclet before we issue the instructions, so we can
 // reserve the unwind space with the VM. The instructions issued may shrink (but not
 // expand!) during issuing (although this is extremely rare in any case, and may not
@@ -1798,7 +1826,7 @@ void UnwindInfo::Split()
     maxFragmentSize = UW_MAX_FRAGMENT_SIZE_BYTES;
 
 #ifdef DEBUG
-    // Consider COMPlus_JitSplitFunctionSize
+    // Consider DOTNET_JitSplitFunctionSize
     unsigned splitFunctionSize = (unsigned)JitConfig.JitSplitFunctionSize();
 
     if (splitFunctionSize != 0)
@@ -1882,7 +1910,7 @@ void UnwindInfo::Split()
 
 #ifdef DEBUG
     // Did the emitter split the function/funclet into as many fragments as we asked for?
-    // It might be fewer if the COMPlus_JitSplitFunctionSize was used, but it better not
+    // It might be fewer if the DOTNET_JitSplitFunctionSize was used, but it better not
     // be fewer if we're splitting into 512K blocks!
 
     unsigned fragCount = 0;
@@ -1899,7 +1927,7 @@ void UnwindInfo::Split()
 
         // If this fires, then we split into fewer fragments than we asked for, and we are using
         // the default, unwind-data-defined 512K maximum fragment size. We won't be able to fit
-        // this fragment into the unwind data! If you set COMPlus_JitSplitFunctionSize to something
+        // this fragment into the unwind data! If you set DOTNET_JitSplitFunctionSize to something
         // small, we might not be able to split into as many fragments as asked for, because we
         // can't split prologs or epilogs.
         assert(maxFragmentSize != UW_MAX_FRAGMENT_SIZE_BYTES);
@@ -1918,7 +1946,6 @@ void UnwindInfo::Split()
 void UnwindInfo::Reserve(bool isFunclet, bool isHotCode)
 {
     assert(uwiInitialized == UWI_INITIALIZED_PATTERN);
-    assert(isHotCode || !isFunclet);
 
     for (UnwindFragmentInfo* pFrag = &uwiFragmentFirst; pFrag != NULL; pFrag = pFrag->ufiNext)
     {

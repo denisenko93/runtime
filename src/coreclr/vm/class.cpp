@@ -162,7 +162,8 @@ void EEClass::Destruct(MethodTable * pOwningMT)
         }
         if (pDelegateEEClass->m_pInstRetBuffCallStub)
         {
-            pDelegateEEClass->m_pInstRetBuffCallStub->DecRef();
+            ExecutableWriterHolder<Stub> stubWriterHolder(pDelegateEEClass->m_pInstRetBuffCallStub, sizeof(Stub));
+            stubWriterHolder.GetRW()->DecRef();
         }
         // While m_pMultiCastInvokeStub is also a member,
         // it is owned by the m_pMulticastStubCache, not by the class
@@ -428,7 +429,7 @@ VOID EEClass::FixupFieldDescForEnC(MethodTable * pMT, EnCFieldDesc *pFD, mdField
 // AddField - called when a new field is added by EnC
 //
 // Since instances of this class may already exist on the heap, we can't change the
-// runtime layout of the object to accomodate the new field.  Instead we hang the field
+// runtime layout of the object to accommodate the new field.  Instead we hang the field
 // off the syncblock (for instance fields) or in the FieldDesc for static fields.
 //
 // Here we just create the FieldDesc and link it to the class.  The actual storage will
@@ -584,14 +585,15 @@ HRESULT EEClass::AddMethod(MethodTable * pMT, mdMethodDef methodDef, RVA newRVA,
 
     LoaderAllocator* pAllocator = pMT->GetLoaderAllocator();
 
+    DWORD classification = mcIL;
+
     // Create a new MethodDescChunk to hold the new MethodDesc
     // Create the chunk somewhere we'll know is within range of the VTable
     MethodDescChunk *pChunk = MethodDescChunk::CreateChunk(pAllocator->GetHighFrequencyHeap(),
                                                            1,               // methodDescCount
-                                                           mcInstantiated,
+                                                           classification,
                                                            TRUE /* fNonVtableSlot */,
                                                            TRUE /* fNativeCodeSlot */,
-                                                           FALSE /* fComPlusCallInfo */,
                                                            pMT,
                                                            &dummyAmTracker);
 
@@ -605,20 +607,38 @@ HRESULT EEClass::AddMethod(MethodTable * pMT, mdMethodDef methodDef, RVA newRVA,
      // Use a local StackingAllocator instead.
     StackingAllocator stackingAllocator;
 
+    MethodTableBuilder::bmtInternalInfo bmtInternal;
+    bmtInternal.pModule = pMT->GetModule();
+    bmtInternal.pInternalImport = NULL;
+    bmtInternal.pParentMT = NULL;
+
     MethodTableBuilder builder(pMT,
                                pClass,
                                &stackingAllocator,
                                &dummyAmTracker);
+
+    builder.SetBMTData(pMT->GetLoaderAllocator(),
+                       NULL,
+                       NULL,
+                       NULL,
+                       NULL,
+                       NULL,
+                       NULL,
+                       NULL,
+                       NULL,
+                       NULL,
+                       &bmtInternal);
+
     EX_TRY
     {
         INDEBUG(LPCSTR debug_szFieldName);
         INDEBUG(if (FAILED(pImport->GetNameOfMethodDef(methodDef, &debug_szFieldName))) { debug_szFieldName = "Invalid MethodDef record"; });
         builder.InitMethodDesc(pNewMD,
-                               mcInstantiated,  // Use instantiated methoddesc for EnC added methods to get space for slot
+                               classification,
                                methodDef,
                                dwImplFlags,
                                dwMemberAttrs,
-                               TRUE,            // fEnC
+                               TRUE,    // fEnC
                                newRVA,
                                pImport,
                                NULL
@@ -628,6 +648,10 @@ HRESULT EEClass::AddMethod(MethodTable * pMT, mdMethodDef methodDef, RVA newRVA,
                               );
 
         pNewMD->SetTemporaryEntryPoint(pAllocator, &dummyAmTracker);
+
+        // [TODO] if an exception is thrown, asserts will fire in EX_CATCH_HRESULT()
+        // during an EnC operation due to the debugger thread not being able to
+        // transition to COOP mode.
     }
     EX_CATCH_HRESULT(hr);
     if (S_OK != hr)
@@ -1206,7 +1230,7 @@ void ClassLoader::PropagateCovariantReturnMethodImplSlots(MethodTable* pMT)
     //      }
     //      class B : A {
     //          [PreserveBaseOverrides]
-    //          DerivedRetType VirtualFunction() { .override A.VirtualFuncion }
+    //          DerivedRetType VirtualFunction() { .override A.VirtualFunction }
     //      }
     //      class C : B {
     //          MoreDerivedRetType VirtualFunction() { .override A.VirtualFunction }
@@ -1791,10 +1815,9 @@ TypeHandle MethodTable::SetupCoClassForInterface()
 
         // Try to load the class using its name as a fully qualified name. If that fails,
         // then we try to load it in the assembly of the current class.
-        CoClassType = TypeName::GetTypeUsingCASearchRules(ss.GetUnicode(), GetAssembly());
+        CoClassType = TypeName::GetTypeReferencedByCustomAttribute(ss.GetUnicode(), GetAssembly());
 
         // Cache the coclass type
-        g_IBCLogger.LogEEClassCOWTableAccess(this);
         GetClass_NoLogging()->SetCoClassForInterface(CoClassType);
     }
     return CoClassType;
@@ -1839,7 +1862,7 @@ void MethodTable::GetEventInterfaceInfo(MethodTable **ppSrcItfClass, MethodTable
 
     // Try to load the class using its name as a fully qualified name. If that fails,
     // then we try to load it in the assembly of the current class.
-    SrcItfType = TypeName::GetTypeUsingCASearchRules(ss.GetUnicode(), GetAssembly());
+    SrcItfType = TypeName::GetTypeReferencedByCustomAttribute(ss.GetUnicode(), GetAssembly());
 
     // Retrieve the COM event provider class name.
     IfFailThrow(cap.GetNonNullString(&szName, &cbName));
@@ -1849,7 +1872,7 @@ void MethodTable::GetEventInterfaceInfo(MethodTable **ppSrcItfClass, MethodTable
 
     // Try to load the class using its name as a fully qualified name. If that fails,
     // then we try to load it in the assembly of the current class.
-    EventProvType = TypeName::GetTypeUsingCASearchRules(ss.GetUnicode(), GetAssembly());
+    EventProvType = TypeName::GetTypeReferencedByCustomAttribute(ss.GetUnicode(), GetAssembly());
 
     // Set the source interface and event provider classes.
     *ppSrcItfClass = SrcItfType.GetMethodTable();
@@ -2161,7 +2184,6 @@ CorIfaceAttr MethodTable::GetComInterfaceType()
     }
 
     // Cache the interface type
-    g_IBCLogger.LogEEClassCOWTableAccess(this);
     GetClass_NoLogging()->SetComInterfaceType(ItfType);
 
     return ItfType;
@@ -2194,7 +2216,7 @@ void EEClass::GetBestFitMapping(MethodTable * pMT, BOOL *pfBestFitMapping, BOOL 
         if (*pfBestFitMapping) flags |= VMFLAG_BESTFITMAPPING;
         if (*pfThrowOnUnmappableChar) flags |= VMFLAG_THROWONUNMAPPABLECHAR;
 
-        FastInterlockOr(&pClass->m_VMFlags, flags);
+        InterlockedOr((LONG*)&pClass->m_VMFlags, flags);
     }
     else
     {
@@ -2237,8 +2259,8 @@ void MethodTable::DebugRecursivelyDumpInstanceFields(LPCUTF8 pszClassName, BOOL 
         {
             // Display them
             if(debug) {
-                ssBuff.Printf(W("%S:\n"), pszClassName);
-                WszOutputDebugString(ssBuff.GetUnicode());
+                ssBuff.Printf("%s:\n", pszClassName);
+                OutputDebugStringUtf8(ssBuff.GetUTF8());
             }
             else {
                  LOG((LF_CLASSLOADER, LL_ALWAYS, "%s:\n", pszClassName));
@@ -2251,8 +2273,8 @@ void MethodTable::DebugRecursivelyDumpInstanceFields(LPCUTF8 pszClassName, BOOL 
                 printf("offset %s%3d %s\n", pFD->IsByValue() ? "byvalue " : "", pFD->GetOffset_NoLogging(), pFD->GetName());
 #endif
                 if(debug) {
-                    ssBuff.Printf(W("offset %3d %S\n"), pFD->GetOffset_NoLogging(), pFD->GetName());
-                    WszOutputDebugString(ssBuff.GetUnicode());
+                    ssBuff.Printf("offset %3d %s\n", pFD->GetOffset_NoLogging(), pFD->GetName());
+                    OutputDebugStringUtf8(ssBuff.GetUTF8());
                 }
                 else {
                     LOG((LF_CLASSLOADER, LL_ALWAYS, "offset %3d %s\n", pFD->GetOffset_NoLogging(), pFD->GetName()));
@@ -2264,7 +2286,7 @@ void MethodTable::DebugRecursivelyDumpInstanceFields(LPCUTF8 pszClassName, BOOL 
     {
         if(debug)
         {
-            WszOutputDebugString(W("<Exception Thrown>\n"));
+            OutputDebugStringUtf8("<Exception Thrown>\n");
         }
         else
         {
@@ -2300,8 +2322,8 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
 
         if (debug)
         {
-            ssBuff.Printf(W("Field layout for '%S':\n\n"), pszClassName);
-            WszOutputDebugString(ssBuff.GetUnicode());
+            ssBuff.Printf("Field layout for '%s':\n\n", pszClassName);
+            OutputDebugStringUtf8(ssBuff.GetUTF8());
         }
         else
         {
@@ -2313,8 +2335,8 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
         {
             if (debug)
             {
-                WszOutputDebugString(W("Static fields (stored at vtable offsets)\n"));
-                WszOutputDebugString(W("----------------------------------------\n"));
+                OutputDebugStringUtf8("Static fields (stored at vtable offsets)\n");
+                OutputDebugStringUtf8("----------------------------------------\n");
             }
             else
             {
@@ -2327,8 +2349,8 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
             {
                 FieldDesc *pFD = GetClass()->GetFieldDescList() + ((GetNumInstanceFields()-cParentInstanceFields) + i);
                 if(debug) {
-                    ssBuff.Printf(W("offset %3d %S\n"), pFD->GetOffset_NoLogging(), pFD->GetName());
-                    WszOutputDebugString(ssBuff.GetUnicode());
+                    ssBuff.Printf("offset %3d %s\n", pFD->GetOffset_NoLogging(), pFD->GetName());
+                    OutputDebugStringUtf8(ssBuff.GetUTF8());
                 }
                 else
                 {
@@ -2342,7 +2364,7 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
         {
             if (GetNumStaticFields()) {
                 if(debug) {
-                    WszOutputDebugString(W("\n"));
+                    OutputDebugStringUtf8("\n");
                 }
                 else
                 {
@@ -2353,8 +2375,8 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
 
             if (debug)
             {
-                WszOutputDebugString(W("Instance fields\n"));
-                WszOutputDebugString(W("---------------\n"));
+                OutputDebugStringUtf8("Instance fields\n");
+                OutputDebugStringUtf8("---------------\n");
             }
             else
             {
@@ -2368,7 +2390,7 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
 
         if (debug)
         {
-            WszOutputDebugString(W("\n"));
+            OutputDebugStringUtf8("\n");
         }
         else
         {
@@ -2380,7 +2402,7 @@ void MethodTable::DebugDumpFieldLayout(LPCUTF8 pszClassName, BOOL debug)
     {
         if (debug)
         {
-            WszOutputDebugString(W("<Exception Thrown>\n"));
+            OutputDebugStringUtf8("<Exception Thrown>\n");
         }
         else
         {
@@ -2405,8 +2427,8 @@ MethodTable::DebugDumpGCDesc(
 
         if (fDebug)
         {
-            ssBuff.Printf(W("GC description for '%S':\n\n"), pszClassName);
-            WszOutputDebugString(ssBuff.GetUnicode());
+            ssBuff.Printf("GC description for '%s':\n\n", pszClassName);
+            OutputDebugStringUtf8(ssBuff.GetUTF8());
         }
         else
         {
@@ -2421,7 +2443,7 @@ MethodTable::DebugDumpGCDesc(
 
             if (fDebug)
             {
-                WszOutputDebugString(W("GCDesc:\n"));
+                OutputDebugStringUtf8("GCDesc:\n");
             } else
             {
                 //LF_ALWAYS allowed here because this is controlled by special env var ShouldDumpOnClassLoad
@@ -2435,12 +2457,12 @@ MethodTable::DebugDumpGCDesc(
             {
                 if (fDebug)
                 {
-                    ssBuff.Printf(W("   offset %5d (%d w/o Object), size %5d (%5d w/o BaseSize subtr)\n"),
+                    ssBuff.Printf("   offset %5d (%d w/o Object), size %5d (%5d w/o BaseSize subtr)\n",
                         pSeries->GetSeriesOffset(),
                         pSeries->GetSeriesOffset() - OBJECT_SIZE,
                         pSeries->GetSeriesSize(),
                         pSeries->GetSeriesSize() + GetBaseSize() );
-                    WszOutputDebugString(ssBuff.GetUnicode());
+                    OutputDebugStringUtf8(ssBuff.GetUTF8());
                 }
                 else
                 {
@@ -2457,7 +2479,7 @@ MethodTable::DebugDumpGCDesc(
 
             if (fDebug)
             {
-                WszOutputDebugString(W("\n"));
+                OutputDebugStringUtf8("\n");
             } else
             {
                 //LF_ALWAYS allowed here because this is controlled by special env var ShouldDumpOnClassLoad
@@ -2469,7 +2491,7 @@ MethodTable::DebugDumpGCDesc(
     {
         if (fDebug)
         {
-            WszOutputDebugString(W("<Exception Thrown>\n"));
+            OutputDebugStringUtf8("<Exception Thrown>\n");
         }
         else
         {
@@ -2505,7 +2527,7 @@ CorClassIfaceAttr MethodTable::GetComClassInterfaceType()
         return clsIfNone;
 
     // If the class does not support IClassX,
-    // then it is considered ClassInterfaceType.None unless explicitly overriden by the CA
+    // then it is considered ClassInterfaceType.None unless explicitly overridden by the CA
     if (!ClassSupportsIClassX(this))
         return clsIfNone;
 
@@ -2702,8 +2724,22 @@ void EEClass::AddChunk (MethodDescChunk* pNewChunk)
     STATIC_CONTRACT_FORBID_FAULT;
 
     _ASSERTE(pNewChunk->GetNextChunk() == NULL);
-    pNewChunk->SetNextChunk(GetChunks());
-    SetChunks(pNewChunk);
+
+    MethodDescChunk* head = GetChunks();
+
+    if (head == NULL)
+    {
+        SetChunks(pNewChunk);
+    }
+    else
+    {
+        // Current chunk needs to be added to the end of the list so that
+        // when reflection is iterating all methods, they would come in declared order
+        while (head->GetNextChunk() != NULL)
+            head = head->GetNextChunk();
+
+        head->SetNextChunk(pNewChunk);
+    }
 }
 
 //*******************************************************************************
@@ -2982,7 +3018,7 @@ EEClass::EnumMemoryRegions(CLRDataEnumMemoryFlags flags, MethodTable * pMT)
     if (HasOptionalFields())
         DacEnumMemoryRegion(dac_cast<TADDR>(GetOptionalFields()), sizeof(EEClassOptionalFields));
 
-    if (flags != CLRDATA_ENUM_MEM_MINI && flags != CLRDATA_ENUM_MEM_TRIAGE)
+    if (flags != CLRDATA_ENUM_MEM_MINI && flags != CLRDATA_ENUM_MEM_TRIAGE && flags != CLRDATA_ENUM_MEM_HEAP2)
     {
         PTR_Module pModule = pMT->GetModule();
         if (pModule.IsValid())

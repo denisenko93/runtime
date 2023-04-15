@@ -26,15 +26,15 @@
 extern "C" {
 
 /***************************************************************************/
-/* Note that this construtor does not set the LocalSig, but has the
-   advantage that it does not have any dependancy on EE structures.
+/* Note that this constructor does not set the LocalSig, but has the
+   advantage that it does not have any dependency on EE structures.
    inside the EE use the FunctionDesc constructor */
 
 void __stdcall DecoderInit(void *pThis, COR_ILMETHOD *header)
 {
+    memset(pThis, 0, sizeof(COR_ILMETHOD_DECODER));
     COR_ILMETHOD_DECODER *decoder = (COR_ILMETHOD_DECODER *)pThis;
 
-    memset(decoder, 0, sizeof(COR_ILMETHOD_DECODER));
     if (header->Tiny.IsTiny())
     {
         decoder->SetMaxStack(header->Tiny.GetMaxStack());
@@ -140,7 +140,9 @@ unsigned __stdcall IlmethodEmit(unsigned size, COR_ILMETHOD_FAT* header,
         fatHeader->SetSize(sizeof(COR_ILMETHOD_FAT) / 4);
     }
 #ifndef SOS_INCLUDE
+#ifdef _DEBUG
     assert(&origBuff[size] == outBuff);
+#endif
 #endif // !SOS_INCLUDE
     return(size);
 }
@@ -253,11 +255,7 @@ unsigned __stdcall SectEH_Emit(unsigned size, unsigned ehCount,
             EHSect->Kind = CorILMethod_Sect_EHTable;
             if (moreSections)
                 EHSect->Kind |= CorILMethod_Sect_MoreSects;
-#ifndef SOS_INCLUDE
-            EHSect->DataSize = EHSect->Size(ehCount);
-#else
             EHSect->DataSize = (BYTE) EHSect->Size(ehCount);
-#endif // !SOS_INCLUDE
             EHSect->Reserved = 0;
             assert(EHSect->DataSize == EHSect->Size(ehCount)); // make sure didn't overflow
             outBuff = (BYTE*) &EHSect->Clauses[ehCount];

@@ -141,15 +141,9 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     if (node->IsCall())
     {
         // For calls having return buffer, update the local number that is written after this call.
-        GenTree* retBufArgNode = node->AsCall()->GetLclRetBufArgNode();
+        GenTree* retBufArgNode = compiler->gtCallGetDefinedRetBufLclAddr(node->AsCall());
         if (retBufArgNode != nullptr)
         {
-            // If a copy/reload is inserted by LSRA, retrieve the returnBuffer
-            if (retBufArgNode->IsCopyOrReload())
-            {
-                retBufArgNode = retBufArgNode->AsCopyOrReload()->gtGetOp1();
-            }
-
             m_flags |= ALIAS_WRITES_LCL_VAR;
             m_lclNum  = retBufArgNode->AsLclVarCommon()->GetLclNum();
             m_lclOffs = retBufArgNode->AsLclVarCommon()->GetLclOffs();
@@ -190,9 +184,13 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
         isWrite = true;
     }
 #ifdef FEATURE_HW_INTRINSICS
-    else if (node->OperIsHWIntrinsic() && node->AsHWIntrinsic()->OperIsMemoryStore())
+    else if (node->OperIsHWIntrinsic())
     {
-        isWrite = true;
+        if (node->AsHWIntrinsic()->OperIsMemoryStoreOrBarrier())
+        {
+            // For barriers, we model the behavior after GT_MEMORYBARRIER
+            isWrite = true;
+        }
     }
 #endif // FEATURE_HW_INTRINSICS
 
@@ -209,7 +207,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
         // If the indirection targets a lclVar, we can be more precise with regards to aliasing by treating the
         // indirection as a lclVar access.
         GenTree* address = node->AsIndir()->Addr();
-        if (address->OperIsLocalAddr())
+        if (address->OperIs(GT_LCL_ADDR))
         {
             isLclVarAccess = true;
             lclNum         = address->AsLclVarCommon()->GetLclNum();
@@ -240,7 +238,7 @@ AliasSet::NodeInfo::NodeInfo(Compiler* compiler, GenTree* node)
     assert(isMemoryAccess || isLclVarAccess);
 
     // Now that we've determined whether or not this access is a read or a write and whether the accessed location is
-    // memory or a lclVar, determine whther or not the location is addressable and udpate the alias set.
+    // memory or a lclVar, determine whether or not the location is addressable and update the alias set.
     const bool isAddressableLocation = isMemoryAccess || compiler->lvaTable[lclNum].IsAddressExposed();
 
     if (!isWrite)
@@ -296,7 +294,7 @@ void AliasSet::AddNode(Compiler* compiler, GenTree* node)
 
             m_lclVarReads.Add(compiler, lclNum);
         }
-        if (!operand->IsArgPlaceHolderNode() && operand->isContained())
+        if (operand->isContained())
         {
             AddNode(compiler, operand);
         }

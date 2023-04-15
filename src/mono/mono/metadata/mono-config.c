@@ -17,7 +17,6 @@
 #include "mono/metadata/loader.h"
 #include "mono/metadata/loader-internals.h"
 #include "mono/metadata/mono-config.h"
-#include "mono/metadata/mono-config-internals.h"
 #include "mono/metadata/metadata-internals.h"
 #include "mono/metadata/object-internals.h"
 #include "mono/utils/mono-logger-internals.h"
@@ -165,6 +164,11 @@ mono_get_machine_config (void)
 
 void
 mono_config_cleanup (void)
+{
+}
+
+void
+mono_config_parse_memory (const char *buffer)
 {
 }
 

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Runtime.Serialization;
@@ -13,7 +14,7 @@ namespace System.ComponentModel
     /// </summary>
     [Serializable]
     [System.Runtime.CompilerServices.TypeForwardedFrom("System, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
-    public partial class Win32Exception : ExternalException, ISerializable
+    public class Win32Exception : ExternalException
     {
         private const int E_FAIL = unchecked((int)0x80004005);
 
@@ -28,7 +29,7 @@ namespace System.ComponentModel
         /// <summary>
         /// Initializes a new instance of the <see cref='System.ComponentModel.Win32Exception'/> class with the specified error.
         /// </summary>
-        public Win32Exception(int error) : this(error, GetErrorMessage(error))
+        public Win32Exception(int error) : this(error, Marshal.GetPInvokeErrorMessage(error))
         {
         }
         /// <summary>
@@ -56,11 +57,15 @@ namespace System.ComponentModel
             NativeErrorCode = Marshal.GetLastPInvokeError();
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         protected Win32Exception(SerializationInfo info, StreamingContext context) : base(info, context)
         {
             NativeErrorCode = info.GetInt32(nameof(NativeErrorCode));
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public override void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             base.GetObjectData(info, context);

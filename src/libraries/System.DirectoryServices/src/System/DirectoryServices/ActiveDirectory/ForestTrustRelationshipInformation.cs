@@ -35,7 +35,7 @@ namespace System.DirectoryServices.ActiveDirectory
             if (unmanagedTrust.NetbiosDomainName != (IntPtr)0)
                 tmpNetBIOSName = Marshal.PtrToStringUni(unmanagedTrust.NetbiosDomainName);
 
-            this.target = (tmpDNSName == null ? tmpNetBIOSName : tmpDNSName);
+            this.target = tmpDNSName ?? tmpNetBIOSName;
             // direction
             if ((unmanagedTrust.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_OUTBOUND) != 0 &&
                 (unmanagedTrust.Flags & (int)DS_DOMAINTRUST_FLAG.DS_DOMAIN_DIRECT_INBOUND) != 0)
@@ -78,7 +78,7 @@ namespace System.DirectoryServices.ActiveDirectory
             }
         }
 
-        public void Save()
+        public unsafe void Save()
         {
             int count = 0;
             IntPtr records = (IntPtr)0;
@@ -181,15 +181,14 @@ namespace System.DirectoryServices.ActiveDirectory
                         record.ForestTrustType = LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustDomainInfo;
                         ForestTrustDomainInformation tmp = _domainInfo[i];
                         record.Time = tmp.time;
-                        IntPtr pSid = (IntPtr)0;
+                        void* pSid = null;
                         global::Interop.BOOL result = global::Interop.Advapi32.ConvertStringSidToSid(tmp.DomainSid, out pSid);
                         if (result == global::Interop.BOOL.FALSE)
                         {
-                            throw ExceptionHelper.GetExceptionFromErrorCode(Marshal.GetLastWin32Error());
+                            throw ExceptionHelper.GetExceptionFromErrorCode(Marshal.GetLastPInvokeError());
                         }
-                        record.DomainInfo = new LSA_FOREST_TRUST_DOMAIN_INFO();
-                        record.DomainInfo.sid = pSid;
-                        sidList.Add(pSid);
+                        record.DomainInfo.sid = (IntPtr)pSid;
+                        sidList.Add((IntPtr)pSid);
                         record.DomainInfo.DNSNameBuffer = Marshal.StringToHGlobalUni(tmp.DnsName);
                         ptrList.Add(record.DomainInfo.DNSNameBuffer);
                         record.DomainInfo.DNSNameLength = (short)(tmp.DnsName == null ? 0 : tmp.DnsName.Length * 2);             // sizeof(WCHAR)
@@ -214,7 +213,6 @@ namespace System.DirectoryServices.ActiveDirectory
                         record.Time = (LARGE_INTEGER)_binaryDataTime[i]!;
                         record.Data.Length = ((byte[])_binaryData[i]!).Length;
                         record.ForestTrustType = (LSA_FOREST_TRUST_RECORD_TYPE)_binaryRecordType[i]!;
-                        record.Data = new LSA_FOREST_TRUST_BINARY_DATA();
                         if (record.Data.Length == 0)
                         {
                             record.Data.Buffer = (IntPtr)0;
@@ -291,7 +289,7 @@ namespace System.DirectoryServices.ActiveDirectory
 
                     for (int i = 0; i < sidList.Count; i++)
                     {
-                        global::Interop.Kernel32.LocalFree((IntPtr)sidList[i]!);
+                        global::Interop.Kernel32.LocalFree((void*)(nint)sidList[i]!);
                     }
 
                     if (records != (IntPtr)0)
@@ -317,7 +315,7 @@ namespace System.DirectoryServices.ActiveDirectory
             catch { throw; }
         }
 
-        private void GetForestTrustInfoHelper()
+        private unsafe void GetForestTrustInfoHelper()
         {
             IntPtr forestTrustInfo = (IntPtr)0;
             SafeLsaPolicyHandle? handle = null;
@@ -381,7 +379,7 @@ namespace System.DirectoryServices.ActiveDirectory
                                 if (record.ForestTrustType == LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustTopLevelName)
                                 {
                                     IntPtr myPtr = IntPtr.Add(addr, 16);
-                                    Marshal.PtrToStructure(myPtr, record.TopLevelName);
+                                    record.TopLevelName = *(global::Interop.UNICODE_STRING*)myPtr;
                                     TopLevelName TLN = new TopLevelName(record.Flags, record.TopLevelName, record.Time);
                                     tmpTLNs.Add(TLN);
                                 }
@@ -389,7 +387,7 @@ namespace System.DirectoryServices.ActiveDirectory
                                 {
                                     // get the excluded TLN and put it in our collection
                                     IntPtr myPtr = IntPtr.Add(addr, 16);
-                                    Marshal.PtrToStructure(myPtr, record.TopLevelName);
+                                    record.TopLevelName = *(global::Interop.UNICODE_STRING*)myPtr;
                                     string excludedName = Marshal.PtrToStringUni(record.TopLevelName.Buffer, record.TopLevelName.Length / 2);
                                     tmpExcludedTLNs.Add(excludedName);
                                     tmpExcludedNameTime.Add(excludedName, record.Time);
@@ -397,14 +395,14 @@ namespace System.DirectoryServices.ActiveDirectory
                                 else if (record.ForestTrustType == LSA_FOREST_TRUST_RECORD_TYPE.ForestTrustDomainInfo)
                                 {
                                     IntPtr myPtr = IntPtr.Add(addr, 16);
-                                    Marshal.PtrToStructure(myPtr, record.DomainInfo!);
+                                    record.DomainInfo = *(LSA_FOREST_TRUST_DOMAIN_INFO*)myPtr;
                                     ForestTrustDomainInformation dom = new ForestTrustDomainInformation(record.Flags, record.DomainInfo!, record.Time);
                                     tmpDomainInformation.Add(dom);
                                 }
                                 else
                                 {
                                     IntPtr myPtr = IntPtr.Add(addr, 16);
-                                    Marshal.PtrToStructure(myPtr, record.Data);
+                                    record.Data = *(LSA_FOREST_TRUST_BINARY_DATA*)myPtr;
                                     int length = record.Data.Length;
                                     byte[] byteArray = new byte[length];
                                     if ((record.Data.Buffer != (IntPtr)0) && (length != 0))

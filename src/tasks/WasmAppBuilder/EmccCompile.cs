@@ -78,7 +78,7 @@ namespace Microsoft.WebAssembly.Build.Tasks
             }
 
             _totalFiles = SourceFiles.Length;
-            IDictionary<string, string> envVarsDict = GetEnvironmentVariablesDict();
+            Dictionary<string, string> envVarsDict = GetEnvironmentVariablesDict();
             ConcurrentBag<ITaskItem> outputItems = new();
             try
             {
@@ -137,7 +137,7 @@ namespace Microsoft.WebAssembly.Build.Tasks
                     thread takes one item each time it goes back to the enumerator,
                     and then after a few times of this upgrades to taking two items
                     each time it goes back to the enumerator, and then four, and
-                    then eight, and so on. This ammortizes the cost of taking and
+                    then eight, and so on. This amortizes the cost of taking and
                     releasing the lock across multiple items, while still enabling
                     parallelization for enumerables containing just a few items. It
                     does, however, mean that if you've got a case where the body
@@ -149,7 +149,7 @@ namespace Microsoft.WebAssembly.Build.Tasks
                     create an imbalance, like mentioned above, and we can end up
                     in a situation where one of the partitions has a job that
                     takes very long to execute, by which time other partitions
-                    have completed, so some cores are idle.  But the the idle
+                    have completed, so some cores are idle.  But the idle
                     ones won't get any of the remaining jobs, because they are
                     all assigned to that one partition.
 
@@ -165,7 +165,7 @@ namespace Microsoft.WebAssembly.Build.Tasks
                 });
 
                 if (!result.IsCompleted && !Log.HasLoggedErrors)
-                    Log.LogError("Unknown failure occured while compiling. Check logs to get more details.");
+                    Log.LogError("Unknown failure occurred while compiling. Check logs to get more details.");
 
                 if (!Log.HasLoggedErrors)
                 {
@@ -238,13 +238,13 @@ namespace Microsoft.WebAssembly.Build.Tasks
 
             ITaskItem CreateOutputItemFor(string srcFile, string objFile)
             {
-                ITaskItem newItem = new TaskItem(objFile);
+                TaskItem newItem = new TaskItem(objFile);
                 newItem.SetMetadata("SourceFile", srcFile);
                 return newItem;
             }
         }
 
-        private bool ShouldCompile(string srcFile, string objFile, string[] depFiles, out string reason)
+        private static bool ShouldCompile(string srcFile, string objFile, string[] depFiles, out string reason)
         {
             if (!File.Exists(srcFile))
                 throw new LogAsErrorException($"Could not find source file {srcFile}");
@@ -271,8 +271,7 @@ namespace Microsoft.WebAssembly.Build.Tasks
             {
                 if (!File.Exists(inFile))
                 {
-                    reason = $"Could not find dependency file {inFile} needed for compiling {srcFile} to {outFile}";
-                    Log.LogWarning(reason);
+                    reason = $"the dependency file {inFile} needed for compiling {srcFile} to {outFile} could not be found.";
                     return true;
                 }
 
@@ -292,7 +291,7 @@ namespace Microsoft.WebAssembly.Build.Tasks
             }
         }
 
-        private IDictionary<string, string> GetEnvironmentVariablesDict()
+        private Dictionary<string, string> GetEnvironmentVariablesDict()
         {
             Dictionary<string, string> envVarsDict = new();
             if (EnvironmentVariables == null)

@@ -1,6 +1,7 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 
+using System.ComponentModel;
 using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
@@ -21,15 +22,19 @@ namespace System
         //
 
         internal RuntimeTypeHandle(EETypePtr pEEType)
+            : this(pEEType.RawValue)
         {
-            _value = pEEType.RawValue;
+        }
+
+        private RuntimeTypeHandle(IntPtr value)
+        {
+            _value = value;
         }
 
         public override bool Equals(object? obj)
         {
-            if (obj is RuntimeTypeHandle)
+            if (obj is RuntimeTypeHandle handle)
             {
-                RuntimeTypeHandle handle = (RuntimeTypeHandle)obj;
                 return Equals(handle);
             }
             return false;
@@ -59,6 +64,10 @@ namespace System
                 return RuntimeImports.AreTypesEquivalent(this.ToEETypePtr(), handle.ToEETypePtr());
             }
         }
+
+        public static RuntimeTypeHandle FromIntPtr(IntPtr value) => new RuntimeTypeHandle(value);
+
+        public static IntPtr ToIntPtr(RuntimeTypeHandle value) => value.Value;
 
         public static bool operator ==(object? left, RuntimeTypeHandle right)
         {
@@ -99,6 +108,8 @@ namespace System
             return type.Module.ModuleHandle;
         }
 
+        [Obsolete(Obsoletions.LegacyFormatterImplMessage, DiagnosticId = Obsoletions.LegacyFormatterImplDiagId, UrlFormat = Obsoletions.SharedUrlFormat)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public void GetObjectData(SerializationInfo info, StreamingContext context)
         {
             throw new PlatformNotSupportedException();
@@ -108,6 +119,12 @@ namespace System
         internal EETypePtr ToEETypePtr()
         {
             return new EETypePtr(_value);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal MethodTable* ToMethodTable()
+        {
+            return (MethodTable*)_value;
         }
 
         internal bool IsNull

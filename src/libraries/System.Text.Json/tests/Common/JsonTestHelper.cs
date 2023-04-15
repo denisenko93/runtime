@@ -18,10 +18,15 @@ namespace System.Text.Json
         {
             using JsonDocument expectedDom = JsonDocument.Parse(expected);
             using JsonDocument actualDom = JsonDocument.Parse(actual);
-            AssertJsonEqual(expectedDom.RootElement, actualDom.RootElement, new());
+            AssertJsonEqual(expectedDom.RootElement, actualDom.RootElement);
         }
 
-        private static void AssertJsonEqual(JsonElement expected, JsonElement actual, Stack<object> path)
+        public static void AssertJsonEqual(JsonElement expected, JsonElement actual)
+        {
+            AssertJsonEqualCore(expected, actual, new());
+        }
+
+        private static void AssertJsonEqualCore(JsonElement expected, JsonElement actual, Stack<object> path)
         {
             JsonValueKind valueKind = expected.ValueKind;
             AssertTrue(passCondition: valueKind == actual.ValueKind);
@@ -54,7 +59,7 @@ namespace System.Text.Json
                     foreach (string name in expectedProperties)
                     {
                         path.Push(name);
-                        AssertJsonEqual(expected.GetProperty(name), actual.GetProperty(name), path);
+                        AssertJsonEqualCore(expected.GetProperty(name), actual.GetProperty(name), path);
                         path.Pop();
                     }
                     break;
@@ -67,7 +72,7 @@ namespace System.Text.Json
                     {
                         AssertTrue(passCondition: actualEnumerator.MoveNext(), "Actual array contains fewer elements.");
                         path.Push(i++);
-                        AssertJsonEqual(expectedEnumerator.Current, actualEnumerator.Current, path);
+                        AssertJsonEqualCore(expectedEnumerator.Current, actualEnumerator.Current, path);
                         path.Pop();
                     }
 
@@ -112,6 +117,63 @@ namespace System.Text.Json
                 }
             }
         }
+
+        /// <summary>
+        /// Linq Cartesian product
+        /// </summary>
+        public static IEnumerable<(TFirst First, TSecond Second)> CrossJoin<TFirst, TSecond>(this IEnumerable<TFirst> first, IEnumerable<TSecond> second)
+        {
+            TSecond[]? secondCached = null;
+            foreach (TFirst f in first)
+            {
+                secondCached ??= second.ToArray();
+                foreach (TSecond s in secondCached)
+                {
+                    yield return (f, s);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Linq Cartesian product
+        /// </summary>
+        public static IEnumerable<(TFirst First, TSecond Second, TThird Third)> CrossJoin<TFirst, TSecond, TThird>(
+            this IEnumerable<TFirst> first,
+            IEnumerable<TSecond> second,
+            IEnumerable<TThird> third)
+        {
+            TSecond[]? secondCached = null;
+            TThird[]? thirdCached = null;
+
+            foreach (TFirst f in first)
+            {
+                secondCached ??= second.ToArray();
+                foreach (TSecond s in secondCached)
+                {
+                    thirdCached ??= third.ToArray();
+                    foreach (TThird t in thirdCached)
+                    {
+                        yield return (f, s, t);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Linq Cartesian product
+        /// </summary>
+        public static IEnumerable<TResult> CrossJoin<TFirst, TSecond, TResult>(this IEnumerable<TFirst> first, IEnumerable<TSecond> second, Func<TFirst, TSecond, TResult> resultSelector)
+            => first.CrossJoin(second).Select(tuple => resultSelector(tuple.First, tuple.Second));
+
+        /// <summary>
+        /// Linq Cartesian product
+        /// </summary>
+        public static IEnumerable<TResult> CrossJoin<TFirst, TSecond, TThird, TResult>(
+            this IEnumerable<TFirst> first,
+            IEnumerable<TSecond> second,
+            IEnumerable<TThird> third,
+            Func<TFirst, TSecond, TThird, TResult> resultSelector)
+            => first.CrossJoin(second, third).Select(tuple => resultSelector(tuple.First, tuple.Second, tuple.Third));
 
         public static async Task<List<T>> ToListAsync<T>(this IAsyncEnumerable<T> source)
         {

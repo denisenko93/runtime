@@ -27,8 +27,11 @@ namespace Microsoft.Extensions.Logging.EventLog
         /// <param name="name">The name of the logger.</param>
         /// <param name="settings">The <see cref="EventLogSettings"/>.</param>
         /// <param name="externalScopeProvider">The <see cref="IExternalScopeProvider"/>.</param>
-        public EventLogLogger(string name!!, EventLogSettings settings!!, IExternalScopeProvider? externalScopeProvider)
+        public EventLogLogger(string name, EventLogSettings settings, IExternalScopeProvider? externalScopeProvider)
         {
+            ThrowHelper.ThrowIfNull(name);
+            ThrowHelper.ThrowIfNull(settings);
+
             _name = name;
             _settings = settings;
 
@@ -45,6 +48,9 @@ namespace Microsoft.Extensions.Logging.EventLog
             _intermediateMessageSegmentSize = EventLog.MaxMessageSize - 2 * ContinuationString.Length;
         }
 
+        /// <summary>
+        /// The event log.
+        /// </summary>
         public IEventLog EventLog { get; }
 
         /// <inheritdoc />
@@ -73,10 +79,7 @@ namespace Microsoft.Extensions.Logging.EventLog
                 return;
             }
 
-            if (formatter == null)
-            {
-                throw new ArgumentNullException(nameof(formatter));
-            }
+            ThrowHelper.ThrowIfNull(formatter);
 
             string message = formatter(state, exception);
 

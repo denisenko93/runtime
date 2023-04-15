@@ -88,7 +88,7 @@ namespace System.Net.Http.Headers
             return _tag.GetHashCode() ^ _isWeak.GetHashCode();
         }
 
-        public static EntityTagHeaderValue Parse(string? input)
+        public static EntityTagHeaderValue Parse(string input)
         {
             int index = 0;
             return (EntityTagHeaderValue)GenericHeaderParser.SingleValueEntityTagParser.ParseValue(
@@ -143,12 +143,12 @@ namespace System.Net.Http.Headers
                     }
                     isWeak = true;
                     current++; // we have a weak-entity tag.
-                    current = current + HttpRuleParser.GetWhitespaceLength(input, current);
+                    current += HttpRuleParser.GetWhitespaceLength(input, current);
                 }
 
                 int tagStartIndex = current;
                 int tagLength;
-                if (HttpRuleParser.GetQuotedStringLength(input, current, out tagLength) != HttpParseResult.Parsed)
+                if (current == input.Length || HttpRuleParser.GetQuotedStringLength(input, current, out tagLength) != HttpParseResult.Parsed)
                 {
                     return 0;
                 }
@@ -165,9 +165,9 @@ namespace System.Net.Http.Headers
                     parsedValue = new EntityTagHeaderValue(input.Substring(tagStartIndex, tagLength), isWeak);
                 }
 
-                current = current + tagLength;
+                current += tagLength;
             }
-            current = current + HttpRuleParser.GetWhitespaceLength(input, current);
+            current += HttpRuleParser.GetWhitespaceLength(input, current);
 
             return current - startIndex;
         }

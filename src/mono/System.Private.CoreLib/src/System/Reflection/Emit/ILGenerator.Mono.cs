@@ -343,16 +343,16 @@ namespace System.Reflection.Emit
             }
         }
 
-        public virtual void BeginCatchBlock(Type exceptionType)
+        public virtual void BeginCatchBlock(Type? exceptionType)
         {
             if (!InExceptionBlock)
-                throw new NotSupportedException("Not in an exception block");
+                throw new NotSupportedException(SR.Argument_NotInExceptionBlock);
             if (exceptionType != null && exceptionType.IsUserType)
-                throw new NotSupportedException("User defined subclasses of System.Type are not yet supported.");
+                throw new NotSupportedException(SR.PlatformNotSupported_UserDefinedSubclassesOfType);
             if (ex_handlers![cur_block].LastClauseType() == ILExceptionBlock.FILTER_START)
             {
                 if (exceptionType != null)
-                    throw new ArgumentException("Do not supply an exception type for filter clause");
+                    throw new ArgumentException(SR.Argument_ShouldNotSpecifyExceptionType);
                 Emit(OpCodes.Endfilter);
                 ex_handlers[cur_block].PatchFilterClause(code_len);
             }
@@ -372,7 +372,7 @@ namespace System.Reflection.Emit
         public virtual void BeginExceptFilterBlock()
         {
             if (!InExceptionBlock)
-                throw new NotSupportedException("Not in an exception block");
+                throw new NotSupportedException(SR.Argument_NotInExceptionBlock);
             InternalEndClause();
 
             ex_handlers![cur_block].AddFilter(code_len);
@@ -403,7 +403,7 @@ namespace System.Reflection.Emit
         public virtual void BeginFaultBlock()
         {
             if (!InExceptionBlock)
-                throw new NotSupportedException("Not in an exception block");
+                throw new NotSupportedException(SR.Argument_NotInExceptionBlock);
 
             if (ex_handlers![cur_block].LastClauseType() == ILExceptionBlock.FILTER_START)
             {
@@ -419,7 +419,7 @@ namespace System.Reflection.Emit
         public virtual void BeginFinallyBlock()
         {
             if (!InExceptionBlock)
-                throw new NotSupportedException("Not in an exception block");
+                throw new NotSupportedException(SR.Argument_NotInExceptionBlock);
 
             InternalEndClause();
 
@@ -444,10 +444,9 @@ namespace System.Reflection.Emit
 
         public virtual LocalBuilder DeclareLocal(Type localType, bool pinned)
         {
-            if (localType == null)
-                throw new ArgumentNullException(nameof(localType));
+            ArgumentNullException.ThrowIfNull(localType);
             if (localType.IsUserType)
-                throw new NotSupportedException("User defined subclasses of System.Type are not yet supported.");
+                throw new NotSupportedException(SR.PlatformNotSupported_UserDefinedSubclassesOfType);
             LocalBuilder res = new LocalBuilder(localType, this);
             res.is_pinned = pinned;
 
@@ -470,7 +469,9 @@ namespace System.Reflection.Emit
         public virtual Label DefineLabel()
         {
             if (labels == null)
+            {
                 labels = new LabelData[defaultLabelsSize];
+            }
             else if (num_labels >= labels.Length)
             {
                 LabelData[] t = new LabelData[labels.Length * 2];
@@ -496,7 +497,6 @@ namespace System.Reflection.Emit
             code[code_len++] = arg;
         }
 
-        [ComVisible(true)]
         public virtual void Emit(OpCode opcode, ConstructorInfo con)
         {
             int token = token_gen.GetToken(con, true);
@@ -556,7 +556,9 @@ namespace System.Reflection.Emit
                 labels[label.m_label].maxStack = cur_stack;
 
             if (fixups == null)
+            {
                 fixups = new LabelFixup[defaultFixupSize];
+            }
             else if (num_fixups >= fixups.Length)
             {
                 LabelFixup[] newf = new LabelFixup[fixups.Length * 2];
@@ -573,8 +575,7 @@ namespace System.Reflection.Emit
 
         public virtual void Emit(OpCode opcode, Label[] labels)
         {
-            if (labels == null)
-                throw new ArgumentNullException(nameof(labels));
+            ArgumentNullException.ThrowIfNull(labels);
 
             /* opcode needs to be switch. */
             int count = labels.Length;
@@ -587,7 +588,9 @@ namespace System.Reflection.Emit
 
             emit_int(count);
             if (fixups == null)
+            {
                 fixups = new LabelFixup[defaultFixupSize + count];
+            }
             else if (num_fixups + count >= fixups.Length)
             {
                 LabelFixup[] newf = new LabelFixup[count + fixups.Length * 2];
@@ -621,8 +624,7 @@ namespace System.Reflection.Emit
 
         public virtual void Emit(OpCode opcode, LocalBuilder local)
         {
-            if (local == null)
-                throw new ArgumentNullException(nameof(local));
+            ArgumentNullException.ThrowIfNull(local);
             if (local.ilgen != this)
                 throw new ArgumentException(SR.Argument_UnmatchedMethodForLocal, nameof(local));
 
@@ -713,12 +715,11 @@ namespace System.Reflection.Emit
 
         public virtual void Emit(OpCode opcode, MethodInfo meth)
         {
-            if (meth == null)
-                throw new ArgumentNullException(nameof(meth));
+            ArgumentNullException.ThrowIfNull(meth);
 
             // For compatibility with MS
             if ((meth is DynamicMethod) && ((opcode == OpCodes.Ldftn) || (opcode == OpCodes.Ldvirtftn) || (opcode == OpCodes.Ldtoken)))
-                throw new ArgumentException("Ldtoken, Ldftn and Ldvirtftn OpCodes cannot target DynamicMethods.");
+                throw new ArgumentException(SR.Argument_InvalidOpCodeOnDynamicMethod);
 
             int token = token_gen.GetToken(meth, true);
             make_room(6);
@@ -786,18 +787,17 @@ namespace System.Reflection.Emit
         // FIXME: vararg methods are not supported
         public virtual void EmitCall(OpCode opcode, MethodInfo methodInfo, Type[]? optionalParameterTypes)
         {
-            if (methodInfo == null)
-                throw new ArgumentNullException(nameof(methodInfo));
+            ArgumentNullException.ThrowIfNull(methodInfo);
             short value = opcode.Value;
             if (!(value == OpCodes.Call.Value || value == OpCodes.Callvirt.Value))
-                throw new NotSupportedException("Only Call and CallVirt are allowed");
+                throw new NotSupportedException(SR.Argument_NotMethodCallOpcode);
             if ((methodInfo.CallingConvention & CallingConventions.VarArgs) == 0)
                 optionalParameterTypes = null;
             if (optionalParameterTypes != null)
             {
                 if ((methodInfo.CallingConvention & CallingConventions.VarArgs) == 0)
                 {
-                    throw new InvalidOperationException("Method is not VarArgs method and optional types were passed");
+                    throw new InvalidOperationException(SR.InvalidOperation_NotAVarArgCallingConvention);
                 }
 
                 int token = token_gen.GetToken(methodInfo, optionalParameterTypes);
@@ -828,8 +828,7 @@ namespace System.Reflection.Emit
 
         public virtual void EmitWriteLine(FieldInfo fld)
         {
-            if (fld == null)
-                throw new ArgumentNullException(nameof(fld));
+            ArgumentNullException.ThrowIfNull(fld);
 
             // The MS implementation does not check for valuetypes here but it
             // should. Also, it should check that if the field is not static,
@@ -847,10 +846,9 @@ namespace System.Reflection.Emit
 
         public virtual void EmitWriteLine(LocalBuilder localBuilder)
         {
-            if (localBuilder == null)
-                throw new ArgumentNullException(nameof(localBuilder));
+            ArgumentNullException.ThrowIfNull(localBuilder);
             if (localBuilder.LocalType is TypeBuilder)
-                throw new ArgumentException("Output streams do not support TypeBuilders.");
+                throw new NotSupportedException(SR.NotSupported_OutputStreamUsingTypeBuilder);
             // The MS implementation does not check for valuetypes here but it
             // should.
             Emit(OpCodes.Ldloc, localBuilder);
@@ -868,10 +866,10 @@ namespace System.Reflection.Emit
         public virtual void EndExceptionBlock()
         {
             if (!InExceptionBlock)
-                throw new NotSupportedException("Not in an exception block");
+                throw new NotSupportedException(SR.Argument_NotInExceptionBlock);
 
             if (ex_handlers![cur_block].LastClauseType() == ILExceptionBlock.FILTER_START)
-                throw new InvalidOperationException("Incorrect code generation for exception block.");
+                throw new InvalidOperationException(SR.Argument_BadExceptionCodeGen);
 
             InternalEndClause();
             MarkLabel(ex_handlers[cur_block].end);
@@ -887,9 +885,9 @@ namespace System.Reflection.Emit
         public virtual void MarkLabel(Label loc)
         {
             if (loc.m_label < 0 || loc.m_label >= num_labels)
-                throw new System.ArgumentException("The label is not valid");
+                throw new System.ArgumentException(SR.Argument_InvalidLabel);
             if (labels![loc.m_label].addr >= 0)
-                throw new System.ArgumentException("The label was already defined");
+                throw new System.ArgumentException(SR.Argument_RedefinedLabel);
             labels[loc.m_label].addr = code_len;
             if (labels[loc.m_label].maxStack > cur_stack)
                 cur_stack = labels[loc.m_label].maxStack;
@@ -897,14 +895,13 @@ namespace System.Reflection.Emit
 
         public virtual void ThrowException([DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicParameterlessConstructor)] Type excType)
         {
-            if (excType == null)
-                throw new ArgumentNullException(nameof(excType));
+            ArgumentNullException.ThrowIfNull(excType);
             if (!((excType == typeof(Exception)) ||
                    excType.IsSubclassOf(typeof(Exception))))
-                throw new ArgumentException("Type should be an exception type", nameof(excType));
+                throw new ArgumentException(SR.Argument_NotExceptionType, nameof(excType));
             ConstructorInfo? ctor = excType.GetConstructor(Type.EmptyTypes);
             if (ctor == null)
-                throw new ArgumentException("Type should have a default constructor", nameof(excType));
+                throw new ArgumentException(SR.Arg_NoDefCTorWithoutTypeName, nameof(excType));
             Emit(OpCodes.Newobj, ctor);
             Emit(OpCodes.Throw);
         }
@@ -920,7 +917,7 @@ namespace System.Reflection.Emit
             for (int i = 0; i < num_fixups; ++i)
             {
                 if (labels![fixups![i].label_idx].addr < 0)
-                    throw new ArgumentException(string.Format("Label #{0} is not marked in method `{1}'", fixups[i].label_idx + 1, mb.Name));
+                    throw new ArgumentException(SR.Format(SR.Argument_LabelUnmarked, fixups[i].label_idx + 1, mb.Name));
                 // Diff is the offset from the end of the jump instruction to the address of the label
                 int diff = labels[fixups[i].label_idx].addr - (fixups[i].pos + fixups[i].offset);
                 if (fixups[i].offset == 1)
